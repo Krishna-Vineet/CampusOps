@@ -1,0 +1,38 @@
+import { GLOBAL_ROLES } from "@campusops/shared";
+import { z } from "zod";
+
+export const provisionStaffSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  fullName: z.string().trim().min(2).max(120),
+  designation: z.string().trim().min(2).max(120),
+  employeeCode: z.string().trim().max(60).optional(),
+  departmentId: z.string().uuid().optional(),
+  phone: z.string().trim().max(30).optional(),
+});
+
+export const grantRoleSchema = z
+  .object({
+    role: z.enum(GLOBAL_ROLES),
+    scopeType: z.enum(["GLOBAL", "DEPARTMENT"]),
+    departmentId: z.string().uuid().optional(),
+  })
+  .refine((v) => v.role !== "ADMIN" || v.scopeType === "GLOBAL", {
+    message: "ADMIN must be GLOBAL.",
+  })
+  .refine((v) => v.scopeType !== "DEPARTMENT" || Boolean(v.departmentId), {
+    message: "DEPARTMENT scope requires departmentId.",
+  })
+  .refine((v) => v.scopeType !== "GLOBAL" || !v.departmentId, {
+    message: "GLOBAL scope cannot include departmentId.",
+  });
+
+export const suspendSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+export const reactivateSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+export const listUsersSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  offset: z.coerce.number().int().min(0).default(0),
+  q: z.string().trim().max(120).optional(),
+  status: z
+    .enum(["PENDING_EMAIL", "PENDING_VERIFICATION", "ACTIVE", "REJECTED", "SUSPENDED"])
+    .optional(),
+});

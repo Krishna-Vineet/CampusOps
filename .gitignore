@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.expo/
+.env
+.env.*
+!.env.example
+*.log
+# Verification evidence is a deliverable, not incidental log noise.
+!docs/*.log
+coverage/
+.DS_Store
+.local/
+
+# Browser-walkthrough artefacts: regenerated on every run.
+e2e/downloaded-report.pdf

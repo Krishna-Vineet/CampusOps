@@ -1,0 +1,239 @@
+import { type SQL, and, eq, inArray, or } from "drizzle-orm";
+import type { z } from "zod";
+import { getDb } from "../../db/client";
+import { studentProfiles, users } from "../../db/schema";
+import {
+  type AuthContext,
+  canAccessDepartment,
+  departmentScope,
+  hasRole,
+} from "../../middleware/auth";
+import { ApiError } from "../../utils/api-error";
+import { isUniqueViolation } from "../../utils/db-error";
+import { type AuditContext, insertAudit } from "../audit/service";
+import { publicUser } from "../auth/service";
+import type { profilePatchSchema, rejectSchema } from "./schemas";
+
+export async function listVerificationQueue(
+  auth: AuthContext,
+  page: { limit: number; offset: number } = { limit: 25, offset: 0 },
+) {
+  const { db } = getDb();
+  const scope = departmentScope(auth, "FACULTY");
+  const seniorScope = departmentScope(auth, "HOD_DEAN");
+  const deptFilters: SQL[] = [];
+  if (hasRole(auth, "FACULTY") && !scope.global && scope.departmentIds.length)
+    deptFilters.push(inArray(studentProfiles.departmentId, scope.departmentIds));
+  if (hasRole(auth, "HOD_DEAN") && !seniorScope.global && seniorScope.departmentIds.length)
+    deptFilters.push(inArray(studentProfiles.departmentId, seniorScope.departmentIds));
+  const globalAccess =
+    (hasRole(auth, "FACULTY") && scope.global) || (hasRole(auth, "HOD_DEAN") && seniorScope.global);
+  if (!globalAccess && deptFilters.length === 0)
+    return { items: [], hasMore: false, limit: page.limit, offset: page.offset };
+  const rows = await db
+    .select({ user: users, profile: studentProfiles })
+    .from(users)
+    .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+    .where(
+      and(
+        eq(users.accountType, "COLLEGE_STUDENT"),
+        eq(users.status, "PENDING_VERIFICATION"),
+        globalAccess ? undefined : or(...deptFilters),
+      ),
+    )
+    .orderBy(users.createdAt, users.id)
+    .limit(page.limit + 1)
+    .offset(page.offset);
+  return {
+    items: rows.slice(0, page.limit).map((r) => ({
+      id: r.user.id,
+      email: r.user.email,
+      fullName: r.user.fullName,
+      status: r.user.status,
+      profile: r.profile,
+    })),
+    hasMore: rows.length > page.limit,
+    limit: page.limit,
+    offset: page.offset,
+  };
+}
+
+async function getCollegeStudentInScope(auth: AuthContext, id: string) {
+  const { db } = getDb();
+  const [row] = await db
+    .select({ user: users, profile: studentProfiles })
+    .from(users)
+    .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+    .where(and(eq(users.id, id), eq(users.accountType, "COLLEGE_STUDENT")))
+    .limit(1);
+  if (!row) throw new ApiError("NOT_FOUND", "Student not found.");
+  const canFaculty =
+    hasRole(auth, "FACULTY") && canAccessDepartment(auth, "FACULTY", row.profile.departmentId);
+  const canSeniorRead =
+    hasRole(auth, "HOD_DEAN") && canAccessDepartment(auth, "HOD_DEAN", row.profile.departmentId);
+  if (!canFaculty && !canSeniorRead)
+    throw new ApiError("FORBIDDEN", "Student is outside your scope.");
+  return row;
+}
+
+export async function getStudent(auth: AuthContext, id: string) {
+  const row = await getCollegeStudentInScope(auth, id);
+  return { user: publicUser(row.user), profile: row.profile };
+}
+
+export async function verifyStudent(
+  auth: AuthContext,
+  id: string,
+  audit?: AuditContext,
+  note?: string,
+) {
+  if (!hasRole(auth, "FACULTY"))
+    throw new ApiError("FORBIDDEN", "Only faculty can verify students.");
+  const row = await getCollegeStudentInScope(auth, id);
+  if (!canAccessDepartment(auth, "FACULTY", row.profile.departmentId))
+    throw new ApiError("FORBIDDEN", "Student is outside your faculty scope.");
+  if (row.user.status !== "PENDING_VERIFICATION" || !row.user.emailVerifiedAt)
+    throw new ApiError("CONFLICT", "Only email-verified pending students can be verified.");
+  const { db } = getDb();
+  const result = await db.transaction(async (tx) => {
+    const [user] = await tx
+      .update(users)
+      .set({ status: "ACTIVE", updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    const [profile] = await tx
+      .update(studentProfiles)
+      .set({
+        verifiedBy: auth.user.id,
+        verifiedAt: new Date(),
+        rejectionReason: null,
+        profileVersion: row.profile.profileVersion + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(studentProfiles.userId, id))
+      .returning();
+    if (audit)
+      await insertAudit(tx, audit, {
+        action: "FACULTY_STUDENT_VERIFIED",
+        entityType: "user",
+        entityId: id,
+        after: { status: user?.status, note },
+      });
+    return { user: user ? publicUser(user) : null, profile };
+  });
+  return result;
+}
+
+export async function rejectStudent(
+  auth: AuthContext,
+  id: string,
+  input: z.infer<typeof rejectSchema>,
+  audit?: AuditContext,
+) {
+  if (!hasRole(auth, "FACULTY"))
+    throw new ApiError("FORBIDDEN", "Only faculty can reject students.");
+  const row = await getCollegeStudentInScope(auth, id);
+  if (!canAccessDepartment(auth, "FACULTY", row.profile.departmentId))
+    throw new ApiError("FORBIDDEN", "Student is outside your faculty scope.");
+  if (row.user.status !== "PENDING_VERIFICATION")
+    throw new ApiError("CONFLICT", "Only pending students can be rejected.");
+  const { db } = getDb();
+  return db.transaction(async (tx) => {
+    const [user] = await tx
+      .update(users)
+      .set({ status: "REJECTED", updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    const [profile] = await tx
+      .update(studentProfiles)
+      .set({
+        rejectionReason: input.reason,
+        profileVersion: row.profile.profileVersion + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(studentProfiles.userId, id))
+      .returning();
+    if (audit)
+      await insertAudit(tx, audit, {
+        action: "FACULTY_STUDENT_REJECTED",
+        entityType: "user",
+        entityId: id,
+        after: { status: user?.status, reason: input.reason },
+      });
+    return { user: user ? publicUser(user) : null, profile };
+  });
+}
+
+export async function patchStudentProfile(
+  auth: AuthContext,
+  id: string,
+  input: z.infer<typeof profilePatchSchema>,
+  audit?: AuditContext,
+) {
+  if (!hasRole(auth, "FACULTY"))
+    throw new ApiError("FORBIDDEN", "Only faculty can correct student profiles.");
+  const row = await getCollegeStudentInScope(auth, id);
+  if (!canAccessDepartment(auth, "FACULTY", row.profile.departmentId))
+    throw new ApiError("FORBIDDEN", "Student is outside your faculty scope.");
+  if (input.departmentId !== undefined) {
+    if (input.departmentId === null)
+      throw new ApiError("VALIDATION_ERROR", "College students require a department.");
+    if (!canAccessDepartment(auth, "FACULTY", input.departmentId))
+      throw new ApiError("FORBIDDEN", "Target department is outside your faculty scope.");
+  }
+  const { db } = getDb();
+  const before = { user: publicUser(row.user), profile: row.profile };
+  let result: {
+    user: ReturnType<typeof publicUser>;
+    profile: typeof studentProfiles.$inferSelect | undefined;
+  };
+  try {
+    result = await db.transaction(async (tx) => {
+      let user = row.user;
+      if (input.fullName !== undefined || input.phone !== undefined) {
+        const [u] = await tx
+          .update(users)
+          .set({
+            ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+            ...(input.phone !== undefined ? { phone: input.phone } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, id))
+          .returning();
+        if (u) user = u;
+      }
+      const [profile] = await tx
+        .update(studentProfiles)
+        .set({
+          ...(input.institutionName !== undefined
+            ? { institutionName: input.institutionName }
+            : {}),
+          ...(input.rollNumber !== undefined ? { rollNumber: input.rollNumber } : {}),
+          ...(input.departmentId !== undefined ? { departmentId: input.departmentId } : {}),
+          ...(input.program !== undefined ? { program: input.program } : {}),
+          ...(input.graduationYear !== undefined ? { graduationYear: input.graduationYear } : {}),
+          ...(input.collegeIdNumber !== undefined
+            ? { collegeIdNumber: input.collegeIdNumber }
+            : {}),
+          profileVersion: row.profile.profileVersion + 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(studentProfiles.userId, id))
+        .returning();
+      if (audit)
+        await insertAudit(tx, audit, {
+          action: "FACULTY_STUDENT_PROFILE_CORRECTED",
+          entityType: "user",
+          entityId: id,
+          before,
+          after: { user: publicUser(user), profile },
+        });
+      return { user: publicUser(user), profile };
+    });
+  } catch (err) {
+    if (isUniqueViolation(err))
+      throw new ApiError("CONFLICT", "Roll number already exists for this institution.");
+    throw err;
+  }
+  return { before, after: result };
+}

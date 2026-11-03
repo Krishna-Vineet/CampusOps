@@ -1,0 +1,835 @@
+import {
+  ACCOUNT_TYPES,
+  ACCOUNT_TYPE_LABELS,
+  ADMISSION_MODES,
+  ADMISSION_MODE_LABELS,
+  type AccountType,
+  type AdmissionMode,
+  EVENT_AUDIENCES,
+  EVENT_AUDIENCE_LABELS,
+  EVENT_TEMPLATES,
+  EVENT_TEMPLATE_LABELS,
+  type EventAudience,
+  type EventTemplate,
+  canEditEvent,
+  canTransition,
+  defaultEligibilityPolicy,
+} from "@campusops/shared/ui";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { ConfirmDialog, Loading, Pager, useAction, useToast } from "../components/feedback";
+import {
+  Card,
+  Empty,
+  ErrorNote,
+  Field,
+  formatWhen,
+  fromLocalInput,
+  toLocalInput,
+} from "../components/ui";
+import { type Page, api, errorMessage, query } from "../lib/api";
+import { PAGE_SIZE } from "../lib/constants";
+import { useSession } from "../lib/session";
+import type { EventRow } from "../lib/types";
+
+type Policy = {
+  version: 1;
+  accountTypes: AccountType[];
+  departmentIds: string[];
+  graduationYears: number[];
+  requireInvitation: boolean;
+};
+
+type Detail = EventRow & {
+  eligibilityPolicy?: Policy;
+  jobDescription?: string | null;
+  onlineMeetingUrl?: string | null;
+};
+
+type EditForm = {
+  title: string;
+  description: string;
+  template: EventTemplate;
+  audience: EventAudience;
+  admissionMode: AdmissionMode;
+  capacity: number;
+  startsAt: string;
+  endsAt: string;
+  registrationOpensAt: string;
+  registrationClosesAt: string;
+  venueSummary: string;
+  onlineMeetingUrl: string;
+  jobDescription: string;
+  policy: Policy;
+};
+
+type Invitation = {
+  id: string;
+  email: string;
+  userId: string | null;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+};
+
+type Revision = {
+  revision: { id: string; revision: number; note: string | null; createdAt: string };
+  createdBy: { id: string; fullName: string } | null;
+};
+
+type AuditEntry = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  actor: { id: string; fullName: string } | null;
+  createdAt: string;
+};
+
+type Department = { id: string; code: string; name: string };
+
+// Loaded on demand: an organiser who never opens these tabs should not download
+// their code.
+const AccessQrPanel = lazy(() =>
+  import("./AccessQrPanel").then((m) => ({ default: m.AccessQrPanel })),
+);
+const ComplaintsPanel = lazy(() =>
+  import("./ComplaintsPanel").then((m) => ({ default: m.ComplaintsPanel })),
+);
+const QuizPanel = lazy(() => import("./QuizPanel").then((m) => ({ default: m.QuizPanel })));
+const RosterPanel = lazy(() => import("./RosterPanel").then((m) => ({ default: m.RosterPanel })));
+const AnnouncementsPanel = lazy(() =>
+  import("./AnnouncementsPanel").then((m) => ({ default: m.AnnouncementsPanel })),
+);
+
+type Tab =
+  | "run"
+  | "roster"
+  | "quiz"
+  | "access"
+  | "announcements"
+  | "complaints"
+  | "edit"
+  | "invitations"
+  | "history";
+
+function toForm(e: Detail): EditForm {
+  return {
+    title: e.title,
+    description: e.description ?? "",
+    template: e.template,
+    audience: e.audience,
+    admissionMode: e.admissionMode,
+    capacity: e.capacity,
+    startsAt: toLocalInput(new Date(e.startsAt)),
+    endsAt: toLocalInput(new Date(e.endsAt)),
+    registrationOpensAt: toLocalInput(new Date(e.registrationOpensAt)),
+    registrationClosesAt: toLocalInput(new Date(e.registrationClosesAt)),
+    venueSummary: e.venueSummary ?? "",
+    onlineMeetingUrl: e.onlineMeetingUrl ?? "",
+    jobDescription: e.jobDescription ?? "",
+    policy: {
+      ...defaultEligibilityPolicy,
+      ...(e.eligibilityPolicy ?? {}),
+      version: 1,
+    } as Policy,
+  };
+}
+
+/**
+ * Event operations that go beyond submitting for approval: day-of lifecycle,
+ * editing a draft, invitations, and the recorded history of an event.
+ * Read-only sections stay visible when the API forbids a write, so a viewer
+ * still sees the truth instead of an empty screen.
+ */
+export function EventWorkspace({
+  event,
+  onChanged,
+}: {
+  event: EventRow;
+  onChanged: () => Promise<void>;
+}) {
+  const toast = useToast();
+  const action = useAction();
+  const { isAdmin, me } = useSession();
+  const [tab, setTab] = useState<Tab>("run");
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [form, setForm] = useState<EditForm | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const [invites, setInvites] = useState<Invitation[]>([]);
+  const [inviteText, setInviteText] = useState("");
+  const [inviteExpiry, setInviteExpiry] = useState("");
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [revoke, setRevoke] = useState<Invitation | null>(null);
+
+  const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [auditOffset, setAuditOffset] = useState(0);
+  const [auditMore, setAuditMore] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const [confirm, setConfirm] = useState<null | "start" | "complete">(null);
+
+  const id = event.id;
+
+  const loadDetail = useCallback(async () => {
+    try {
+      const d = await api<Detail>(`/events/${id}`);
+      setDetail(d);
+      setForm(toForm(d));
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }, [id]);
+
+  useEffect(() => {
+    setTab("run");
+    setInvites([]);
+    setRevisions([]);
+    setAudit([]);
+    setAuditOffset(0);
+    void loadDetail();
+    api<{ items: Department[] }>("/departments")
+      .then((r) => setDepartments(r.items))
+      .catch(() => setDepartments([]));
+  }, [loadDetail]);
+
+  const loadInvites = useCallback(async () => {
+    try {
+      const r = await api<{ items: Invitation[] }>(`/events/${id}/invitations`);
+      setInvites(r.items);
+      setInviteError(null);
+    } catch (err) {
+      setInviteError(errorMessage(err));
+    }
+  }, [id]);
+
+  const loadHistory = useCallback(
+    async (offset: number) => {
+      try {
+        const [revs, logs] = await Promise.all([
+          api<{ items: Revision[] }>(`/events/${id}/revisions`),
+          api<Page<AuditEntry>>(`/events/${id}/audit${query({ limit: PAGE_SIZE, offset })}`),
+        ]);
+        setRevisions(revs.items);
+        setAudit(logs.items);
+        setAuditMore(logs.hasMore ?? false);
+        setAuditOffset(offset);
+        setHistoryError(null);
+      } catch (err) {
+        setHistoryError(errorMessage(err));
+      }
+    },
+    [id],
+  );
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    if (next === "invitations") void loadInvites();
+    if (next === "history") void loadHistory(0);
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form || !detail) return;
+    await action.run(async () => {
+      await api(
+        `/events/${id}`,
+        {
+          title: form.title,
+          description: form.description,
+          template: form.template,
+          audience: form.audience,
+          admissionMode: form.admissionMode,
+          capacity: Number(form.capacity),
+          startsAt: fromLocalInput(form.startsAt),
+          endsAt: fromLocalInput(form.endsAt),
+          registrationOpensAt: fromLocalInput(form.registrationOpensAt),
+          registrationClosesAt: fromLocalInput(form.registrationClosesAt),
+          venueSummary: form.venueSummary || null,
+          onlineMeetingUrl: form.onlineMeetingUrl || null,
+          jobDescription: form.jobDescription || null,
+          eligibilityPolicy: form.policy,
+          expectedRevision: detail.currentRevision,
+        },
+        { method: "PATCH" },
+      );
+      toast.ok("Draft updated.");
+      await loadDetail();
+      await onChanged();
+    });
+  }
+
+  async function transition(kind: "start" | "complete") {
+    setConfirm(null);
+    await action.run(async () => {
+      await api(`/events/${id}/${kind}`, {});
+      toast.ok(kind === "start" ? "Event is live." : "Event completed. Resources released.");
+      await loadDetail();
+      await onChanged();
+    });
+  }
+
+  async function sendInvites(e: React.FormEvent) {
+    e.preventDefault();
+    const emails = inviteText
+      .split(/[\s,;]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (emails.length === 0) {
+      setInviteError("Enter at least one email address.");
+      return;
+    }
+    await action.run(async () => {
+      try {
+        const r = await api<{ created?: number; invited?: number; items?: unknown[] }>(
+          `/events/${id}/invitations`,
+          {
+            emails,
+            expiresAt: inviteExpiry ? fromLocalInput(inviteExpiry) : null,
+          },
+        );
+        const n = r.created ?? r.invited ?? r.items?.length ?? emails.length;
+        toast.ok(`${n} invitation${n === 1 ? "" : "s"} recorded.`);
+        setInviteText("");
+        setInviteExpiry("");
+        setInviteError(null);
+        await loadInvites();
+      } catch (err) {
+        setInviteError(errorMessage(err));
+      }
+    });
+  }
+
+  async function doRevoke() {
+    if (!revoke) return;
+    const target = revoke;
+    setRevoke(null);
+    await action.run(async () => {
+      await api(`/events/${id}/invitations/${target.id}`, undefined, { method: "DELETE" });
+      toast.ok("Invitation revoked.");
+      await loadInvites();
+    });
+  }
+
+  const editable = canEditEvent(event.status);
+  // Configuration rights follow the API: the event's club coordinators, or Admin.
+  const canManageEvent =
+    isAdmin ||
+    (me?.clubMemberships ?? []).some(
+      (m) =>
+        m.clubId === event.clubId &&
+        m.isActive &&
+        (m.clubRole === "LEAD" || m.clubRole === "COORDINATOR"),
+    );
+  const canStart = canTransition(event.status, "LIVE");
+  const canComplete = event.status === "LIVE" || event.status === "PUBLISHED";
+  const live = detail ?? event;
+
+  return (
+    <Card title="Event operations">
+      <div className="subtabs">
+        {(
+          [
+            ["run", "Day of event"],
+            ["roster", "Participants"],
+            ["quiz", "Quiz"],
+            ["access", "Access QRs"],
+            ["announcements", "Announcements"],
+            ["complaints", "Complaints"],
+            ["edit", "Edit details"],
+            ["invitations", "Invitations"],
+            ["history", "History"],
+          ] as Array<[Tab, string]>
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={tab === key ? "active" : "ghost"}
+            onClick={() => selectTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <ErrorNote message={error} />
+
+      {tab === "run" && (
+        <>
+          <p className="meta">
+            Current status: <strong>{event.status.replace(/_/g, " ")}</strong> · revision{" "}
+            {event.currentRevision}
+          </p>
+          <div className="row">
+            <button
+              type="button"
+              disabled={!canStart || action.busy}
+              onClick={() => setConfirm("start")}
+            >
+              Start event
+            </button>
+            <button
+              type="button"
+              disabled={!canComplete || action.busy}
+              onClick={() => setConfirm("complete")}
+            >
+              Mark completed
+            </button>
+          </div>
+          <ul className="plain hint">
+            <li>
+              <strong>Start</strong> moves a published event to LIVE so check-in scanning can run.
+            </li>
+            <li>
+              <strong>Complete</strong> closes the event and releases its resource holds. Reports
+              can be filed once the event has ended.
+            </li>
+            {!canStart && !canComplete && (
+              <li>
+                No day-of action is available from {event.status.replace(/_/g, " ")}. Publish the
+                event first, or check that it is not already closed.
+              </li>
+            )}
+          </ul>
+          {live.cancellationReason && (
+            <p className="warn-note">Cancellation reason: {live.cancellationReason}</p>
+          )}
+        </>
+      )}
+
+      {tab === "roster" && (
+        <Suspense fallback={<Loading label="Loading participants…" />}>
+          <RosterPanel event={live} canManage={canManageEvent} />
+        </Suspense>
+      )}
+
+      {tab === "quiz" && (
+        <Suspense fallback={<Loading label="Loading quiz…" />}>
+          <QuizPanel event={live} canManage={canManageEvent} />
+        </Suspense>
+      )}
+
+      {tab === "announcements" && (
+        <Suspense fallback={<Loading label="Loading announcements…" />}>
+          <AnnouncementsPanel event={live} canManage={canManageEvent} />
+        </Suspense>
+      )}
+
+      {tab === "access" && (
+        <Suspense fallback={<Loading label="Loading access QRs…" />}>
+          <AccessQrPanel event={live} canManage={canManageEvent} />
+        </Suspense>
+      )}
+
+      {tab === "complaints" && (
+        <Suspense fallback={<Loading label="Loading complaints…" />}>
+          <ComplaintsPanel event={live} canManage={canManageEvent} />
+        </Suspense>
+      )}
+
+      {tab === "edit" && !editable && (
+        <Empty>
+          Only a DRAFT can be edited. Create a new revision from the approvals card to change a
+          submitted event; changing a critical field will require fresh approvals.
+        </Empty>
+      )}
+
+      {tab === "edit" && editable && !form && <Loading label="Loading draft…" />}
+
+      {tab === "edit" && editable && form && (
+        <form className="form wide" onSubmit={saveEdit}>
+          <Field label="Title">
+            <input
+              required
+              minLength={3}
+              maxLength={180}
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+            />
+          </Field>
+          <Field label="Template">
+            <select
+              value={form.template}
+              onChange={(e) => setForm({ ...form, template: e.target.value as EventTemplate })}
+            >
+              {EVENT_TEMPLATES.map((t) => (
+                <option key={t} value={t}>
+                  {EVENT_TEMPLATE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Audience">
+            <select
+              value={form.audience}
+              onChange={(e) => setForm({ ...form, audience: e.target.value as EventAudience })}
+            >
+              {EVENT_AUDIENCES.map((a) => (
+                <option key={a} value={a}>
+                  {EVENT_AUDIENCE_LABELS[a]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Admission" hint="Quiz modes need a quiz attached to the event.">
+            <select
+              value={form.admissionMode}
+              onChange={(e) => setForm({ ...form, admissionMode: e.target.value as AdmissionMode })}
+            >
+              {ADMISSION_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {ADMISSION_MODE_LABELS[m]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Capacity">
+            <input
+              type="number"
+              min={1}
+              max={100000}
+              required
+              value={form.capacity}
+              onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Starts">
+            <input
+              type="datetime-local"
+              required
+              value={form.startsAt}
+              onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
+            />
+          </Field>
+          <Field label="Ends">
+            <input
+              type="datetime-local"
+              required
+              value={form.endsAt}
+              onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
+            />
+          </Field>
+          <Field label="Registration opens">
+            <input
+              type="datetime-local"
+              required
+              value={form.registrationOpensAt}
+              onChange={(e) => setForm({ ...form, registrationOpensAt: e.target.value })}
+            />
+          </Field>
+          <Field label="Registration closes" hint="At or before the event starts.">
+            <input
+              type="datetime-local"
+              required
+              value={form.registrationClosesAt}
+              onChange={(e) => setForm({ ...form, registrationClosesAt: e.target.value })}
+            />
+          </Field>
+          <Field label="Venue summary">
+            <input
+              maxLength={300}
+              value={form.venueSummary}
+              onChange={(e) => setForm({ ...form, venueSummary: e.target.value })}
+            />
+          </Field>
+          <Field label="Online meeting URL">
+            <input
+              type="url"
+              value={form.onlineMeetingUrl}
+              placeholder="https://…"
+              onChange={(e) => setForm({ ...form, onlineMeetingUrl: e.target.value })}
+            />
+          </Field>
+          <Field label="Description">
+            <textarea
+              rows={3}
+              maxLength={8000}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="Job description"
+            hint="For placement drives: role, requirements and package details."
+          >
+            <textarea
+              rows={4}
+              maxLength={20000}
+              value={form.jobDescription}
+              onChange={(e) => setForm({ ...form, jobDescription: e.target.value })}
+            />
+          </Field>
+
+          <fieldset className="span-2">
+            <legend>Who may register</legend>
+            <p className="hint">
+              Empty lists mean no restriction on that dimension. These rules are evaluated by the
+              server when a student applies.
+            </p>
+            <div className="row wrap">
+              {ACCOUNT_TYPES.map((t) => (
+                <label key={t} className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.policy.accountTypes.includes(t)}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        policy: {
+                          ...form.policy,
+                          accountTypes: e.target.checked
+                            ? [...form.policy.accountTypes, t]
+                            : form.policy.accountTypes.filter((x) => x !== t),
+                        },
+                      })
+                    }
+                  />
+                  {ACCOUNT_TYPE_LABELS[t]}
+                </label>
+              ))}
+            </div>
+            <Field label="Restrict to departments">
+              <select
+                multiple
+                size={Math.min(6, Math.max(3, departments.length))}
+                value={form.policy.departmentIds}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    policy: {
+                      ...form.policy,
+                      departmentIds: Array.from(e.target.selectedOptions).map((o) => o.value),
+                    },
+                  })
+                }
+              >
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.code} — {d.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Graduation years" hint="Comma separated, e.g. 2026, 2027.">
+              <input
+                value={form.policy.graduationYears.join(", ")}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    policy: {
+                      ...form.policy,
+                      graduationYears: e.target.value
+                        .split(/[,\s]+/)
+                        .map((v) => Number(v))
+                        .filter((v) => Number.isInteger(v) && v >= 2000 && v <= 2100),
+                    },
+                  })
+                }
+              />
+            </Field>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={form.policy.requireInvitation}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    policy: { ...form.policy, requireInvitation: e.target.checked },
+                  })
+                }
+              />
+              Require an invitation to register
+            </label>
+          </fieldset>
+
+          <div className="row">
+            <button type="submit" disabled={action.busy}>
+              {action.busy ? "Saving…" : "Save draft"}
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => detail && setForm(toForm(detail))}
+            >
+              Reset
+            </button>
+          </div>
+        </form>
+      )}
+
+      {tab === "invitations" && (
+        <>
+          {event.audience === "COLLEGE_ONLY" && (
+            <p className="warn-note">
+              This event is college-only. Invitations matter for events open to outsiders or marked
+              invited-only.
+            </p>
+          )}
+          <form className="form" onSubmit={sendInvites}>
+            <Field label="Email addresses" hint="Separate with commas, spaces or new lines.">
+              <textarea
+                rows={3}
+                value={inviteText}
+                placeholder="student@othercollege.edu"
+                onChange={(e) => setInviteText(e.target.value)}
+              />
+            </Field>
+            <Field label="Expires (optional)">
+              <input
+                type="datetime-local"
+                value={inviteExpiry}
+                onChange={(e) => setInviteExpiry(e.target.value)}
+              />
+            </Field>
+            {inviteError && <ErrorNote message={inviteError} />}
+            <button type="submit" disabled={action.busy}>
+              Invite
+            </button>
+          </form>
+
+          {invites.length === 0 ? (
+            <Empty>No invitations recorded for this event.</Empty>
+          ) : (
+            <div className="scroll-x">
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Linked account</th>
+                    <th>Accepted</th>
+                    <th>Expires</th>
+                    <th>State</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {invites.map((inv) => (
+                    <tr key={inv.id}>
+                      <td>{inv.email}</td>
+                      <td>{inv.userId ? "Yes" : "Not registered yet"}</td>
+                      <td>{inv.acceptedAt ? formatWhen(inv.acceptedAt) : "—"}</td>
+                      <td>{inv.expiresAt ? formatWhen(inv.expiresAt) : "No expiry"}</td>
+                      <td>{inv.revokedAt ? "Revoked" : "Active"}</td>
+                      <td>
+                        {!inv.revokedAt && (
+                          <button
+                            type="button"
+                            className="danger tiny"
+                            disabled={action.busy}
+                            onClick={() => setRevoke(inv)}
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "history" && (
+        <>
+          {historyError && <ErrorNote message={historyError} />}
+          <h3>Revisions</h3>
+          {revisions.length === 0 ? (
+            <Empty>No revisions recorded.</Empty>
+          ) : (
+            <div className="scroll-x">
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>Revision</th>
+                    <th>Note</th>
+                    <th>By</th>
+                    <th>When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revisions.map((r) => (
+                    <tr key={r.revision.id}>
+                      <td>{r.revision.revision}</td>
+                      <td>{r.revision.note ?? "—"}</td>
+                      <td>{r.createdBy?.fullName ?? "System"}</td>
+                      <td>{formatWhen(r.revision.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <h3>Audit trail</h3>
+          {audit.length === 0 ? (
+            <Empty>No audit entries visible to you for this event.</Empty>
+          ) : (
+            <>
+              <div className="scroll-x">
+                <table className="grid">
+                  <thead>
+                    <tr>
+                      <th>Action</th>
+                      <th>Entity</th>
+                      <th>Actor</th>
+                      <th>When</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {audit.map((a) => (
+                      <tr key={a.id}>
+                        <td>{a.action.replace(/_/g, " ").toLowerCase()}</td>
+                        <td>{a.entityType.replace(/_/g, " ")}</td>
+                        <td>{a.actor?.fullName ?? "System"}</td>
+                        <td>{formatWhen(a.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Pager
+                offset={auditOffset}
+                limit={PAGE_SIZE}
+                hasMore={auditMore}
+                count={audit.length}
+                onChange={(o) => void loadHistory(o)}
+              />
+            </>
+          )}
+        </>
+      )}
+
+      <ConfirmDialog
+        open={revoke !== null}
+        title={`Revoke the invitation for ${revoke?.email ?? ""}?`}
+        description="They will no longer be able to register for this event through the invitation. You can invite the address again later."
+        confirmLabel="Revoke"
+        busy={action.busy}
+        onCancel={() => setRevoke(null)}
+        onConfirm={() => void doRevoke()}
+      />
+
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm === "start" ? "Start this event?" : "Mark this event completed?"}
+        description={
+          confirm === "start"
+            ? "The event becomes LIVE and participants can check in."
+            : "The event is closed and its resource holds are released. This cannot be undone."
+        }
+        confirmLabel={confirm === "start" ? "Start event" : "Mark completed"}
+        danger={confirm === "complete"}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          if (confirm) void transition(confirm);
+        }}
+      />
+    </Card>
+  );
+}
