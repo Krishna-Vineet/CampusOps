@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../db/client";
-import { departments } from "../../db/schema";
+import { departments, programs } from "../../db/schema";
 import { ApiError } from "../../utils/api-error";
 import { type AuditContext, insertAudit } from "../audit/service";
 import type { CreateDepartmentInput } from "./schemas";
@@ -66,4 +66,36 @@ export async function updateDepartment(
       });
     return row;
   });
+}
+
+export async function listPrograms() {
+  const { db } = getDb();
+  const items = await db
+    .select({ id: programs.id, name: programs.name })
+    .from(programs)
+    .where(eq(programs.isActive, true))
+    .orderBy(asc(programs.name));
+  return { items };
+}
+
+export async function createProgram(name: string, audit?: AuditContext) {
+  const { db } = getDb();
+  try {
+    return await db.transaction(async (tx) => {
+      const [row] = await tx.insert(programs).values({ name }).returning();
+      if (!row) throw new ApiError("INTERNAL_ERROR", "Programme creation failed.");
+      if (audit)
+        await insertAudit(tx, audit, {
+          action: "PROGRAM_CREATED",
+          entityType: "program",
+          entityId: row.id,
+          after: { name: row.name },
+        });
+      return row;
+    });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505")
+      throw new ApiError("CONFLICT", "A programme with that name already exists.");
+    throw error;
+  }
 }

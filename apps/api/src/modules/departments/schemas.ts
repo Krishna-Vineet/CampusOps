@@ -11,6 +11,10 @@ export const createDepartmentSchema = z.object({
   name: z.string().trim().min(2).max(160),
 });
 
+export const createProgramSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+});
+
 export const updateDepartmentSchema = z
   .object({
     name: z.string().trim().min(2).max(160).optional(),

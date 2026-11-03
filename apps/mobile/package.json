@@ -7,13 +7,12 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "expo start --web --port 8081",
-    "phone": "expo start --lan",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web --port 8081",
-    "build:web": "expo export --platform web",
-    "check:versions": "expo install --check",
+    "dev": "bun x expo start --lan",
+    "android": "bun x expo start --android",
+    "ios": "bun x expo start --ios",
+    "web": "bun x expo start --web --port 8081",
+    "build:web": "bun x expo export --platform web",
+    "check:versions": "bun x expo install --check",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -24,6 +23,7 @@
     "expo-camera": "58.0.14",
     "expo-constants": "58.0.14",
     "expo-device": "58.0.5",
+    "expo-document-picker": "~58.0.4",
     "expo-linking": "58.0.15",
     "expo-network": "58.0.4",
     "expo-notifications": "58.1.7",

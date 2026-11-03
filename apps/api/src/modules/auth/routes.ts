@@ -37,6 +37,10 @@ authRoutes.get("/departments", async (c) => {
   const { listDepartments } = await import("../departments/service");
   return ok(c, await listDepartments());
 });
+authRoutes.get("/programs", async (c) => {
+  const { listPrograms } = await import("../departments/service");
+  return ok(c, await listPrograms());
+});
 
 authRoutes.post(
   "/register/college",

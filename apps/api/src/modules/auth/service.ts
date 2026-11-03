@@ -353,6 +353,7 @@ export async function resendVerification(input: z.infer<typeof resendVerificatio
           challengeId: verification.challengeId,
           expiresAt: verification.expiresAt,
           delivery: verification.delivery,
+          demoOtp: verification.demoOtp,
         },
   };
 }

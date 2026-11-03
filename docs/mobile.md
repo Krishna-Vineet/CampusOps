@@ -38,9 +38,9 @@ Do not upgrade individual `expo-*` packages by hand; use `npx expo install --fix
 
 | Variable | Where | Meaning |
 |---|---|---|
-| `EXPO_PUBLIC_API_URL` | Native builds | Absolute API origin, e.g. `https://api.example.com` (no `/api/v1`). Required on native; the app shows a setup error if missing. |
-| `API_PROXY_TARGET` | `serve-preview.mjs` | Backend for the browser preview proxy (default `http://127.0.0.1:8787`). |
-| `PORT` | preview server | Use `8081`; root `.env.local` exports `PORT=8787` for the API, so override it. |
+| `EXPO_PUBLIC_API_URL` | `.env.mobile` | Absolute API origin, e.g. `https://api.example.com` (no `/api/v1`); for a phone use the PC LAN IPv4 plus the API port. |
+| `API_PORT` | `.env.web` and preview proxy | Local API port shared by the Vite and browser-preview proxies. |
+| `PORT` | `.env.api` | API listen port; make it match `API_PORT` and the port in the mobile URL. |
 | `MOBILE_SCHEME` | app config | Deep-link scheme, default `campusops`. |
 
 ## Run
@@ -52,11 +52,10 @@ bun run dev:web
 
 # Mobile browser review preview (low memory; no Metro watcher)
 bun run build:mobile:web
-PORT=8081 bun run preview:mobile
+bun run preview:mobile
 
-# Native development
-cd apps/mobile
-EXPO_PUBLIC_API_URL=http://<your-LAN-ip>:8787 npx expo start
+# Native development (configured by .env.mobile)
+bun run dev:mobile
 ```
 
 The preview server serves `apps/mobile/dist` and proxies `/api/*` and `/health/*` to the API, so browser code uses relative URLs only. It is labelled “Mobile app · browser review preview” and is not a student web portal.

@@ -18,7 +18,7 @@ nvm install 22.23.4 && nvm use 22.23.4
 
 Windows: install Bun via `powershell -c "irm bun.sh/install.ps1|iex"` and Node from nodejs.org, or use WSL2 (recommended; all commands below then work unchanged).
 
-> Keep the Bun binary **outside** the project folder. Never commit `node_modules`, `.env*` (except `.env.example`), `dist`, or `.expo`.
+> Keep the Bun binary **outside** the project folder. Never commit `node_modules`, actual `.env.*` files, `dist`, or `.expo`. The committed `.env.*.example` files are safe templates.
 
 ## 2. Get the code and install once
 
@@ -41,73 +41,42 @@ sudo -u postgres psql -c "CREATE DATABASE campusops_dev OWNER campusops;"
 sudo -u postgres psql -c "CREATE DATABASE campusops_test OWNER campusops;"
 ```
 
-## 4. Fill `.env.local`
+## 4. Create app-specific env files
 
-```bash
-cp .env.example .env.local
+From the repository root, copy the three committed templates (PowerShell):
+
+```powershell
+Copy-Item .env.api.example .env.api
+Copy-Item .env.web.example .env.web
+Copy-Item .env.mobile.example .env.mobile
 ```
 
-Edit `.env.local` (it is git-ignored). Minimum for local demo review:
+Fill `.env.api` with the database URLs and two different random secrets (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`). For local demo email, set `DEMO_MODE=true`; the API env template includes the remaining local defaults. Keep API secrets only in `.env.api`.
 
-```ini
-NODE_ENV=development
-PORT=8787
-WEB_ORIGIN=http://localhost:5173
-APP_BASE_URL=http://localhost:5173
-DATABASE_URL=postgresql://campusops:campusops@127.0.0.1:5432/campusops_dev
-TEST_DATABASE_URL=postgresql://campusops:campusops@127.0.0.1:5432/campusops_test
-JWT_ACCESS_SECRET=<openssl rand -hex 32>
-REFRESH_TOKEN_PEPPER=<openssl rand -hex 32>
-DEMO_MODE=true
-EMAIL_MODE=demo
-EXPOSE_DEMO_OTP=true
-STORAGE_MODE=disabled
-SEED_DEMO_PASSWORD=Any-Local-Password-123!
+Set the **same API port** in `.env.api` (`PORT`), `.env.web` (`API_PORT`), and `.env.mobile` (`EXPO_PUBLIC_API_URL`). For a phone, use your PC's LAN IPv4 in the mobile URL, for example `http://192.168.1.41:8087`—not localhost. The API host must be allowed through Windows Firewall.
+
+Bun does not need to guess which env file to load: each root command explicitly selects its app file and disables automatic dotenv loading. More details: [environment.md](environment.md).
+
+## 5. Migrate
+
+```powershell
+bun run db:migrate
+bun run db:check
 ```
 
-Generate the two secrets with `openssl rand -hex 32` (two different values). Full reference: [environment.md](environment.md).
-
-**How the API finds this file:** Bun automatically loads `.env.local` from the directory it is started in. The root scripts start the API through `bun run --filter`, which runs in `apps/api`; therefore also create a symlink so both locations resolve to the same file:
-
-```bash
-ln -s ../../.env.local apps/api/.env.local     # macOS/Linux
-# Windows (PowerShell, admin): New-Item -ItemType SymbolicLink -Path apps/api/.env.local -Target ../../.env.local
-```
-
-Alternatively export the variables in your shell: `set -a; . ./.env.local; set +a`.
-
-## 5. Migrate and (optionally) seed
-
-```bash
-bun run db:migrate      # applies apps/api/src/db/migrations/0001…0007 in order, tracked in schema_migrations
-bun run db:seed         # fake demo institution; enables demo logins only if SEED_DEMO_PASSWORD is set
-bun run db:check        # prints Postgres version, table count, applied migrations
-```
-
-Seeding is idempotent (fixed UUIDs, `ON CONFLICT DO NOTHING`). It never runs in production unless you run it, and demo passwords are refused when `NODE_ENV=production`.
+The migration runner applies all numbered migrations in order. Demo seed data is optional and is not run by app startup.
 
 ## 6. Run the apps
 
-Open three terminals (all from the repo root):
+Open terminals at the repository root:
 
-```bash
-bun run dev:api       # API on http://localhost:8787  (hot reload)
-bun run dev:web       # Management website on http://localhost:5173 (proxies /api → 8787)
+```powershell
+bun run dev:api       # API on the PORT from .env.api; normal mode, no --hot
+bun run dev:web       # Management website on :5173; proxy port from .env.web
+bun run dev:mobile    # Expo Go/LAN; API origin from .env.mobile
 ```
 
-**Mobile browser preview** (no phone needed):
-
-```bash
-bun run build:mobile:web                    # static Expo export → apps/mobile/dist
-PORT=8081 bun run preview:mobile            # serves it and proxies /api → 8787
-```
-
-**Mobile on a phone / emulator:**
-
-```bash
-cd apps/mobile
-EXPO_PUBLIC_API_URL=http://<your-computer-LAN-IP>:8787 npx expo start
-```
+The API runs without Bun hot reload, so Ctrl+C stops the process normally. Use Node.js 22.13+ for Expo/Metro.
 
 Scan the QR with Expo Go (same Wi‑Fi). `localhost` on a phone means the phone itself, so use your computer's LAN IP. See [mobile.md](mobile.md).
 

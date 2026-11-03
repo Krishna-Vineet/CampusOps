@@ -23,7 +23,6 @@ export type User = {
 export type StudentProfile = {
   institutionName: string;
   rollNumber: string | null;
-  collegeIdNumber: string | null;
   departmentId: string | null;
   program: string | null;
   graduationYear: number | null;
@@ -111,7 +110,7 @@ export type Checkpoint = {
   isActive: boolean;
 };
 export type ScanInspection = {
-  participant: { id: string; fullName: string; email: string; collegeIdNumber: string | null };
+  participant: { id: string; fullName: string; email: string };
   checkpoint: { id: string; name: string; requiresIdCheck: boolean };
   standing: QrStanding;
 };
@@ -153,6 +152,7 @@ export type Config = {
   exposeDemoOtp: boolean;
   storageMode: string;
   campusTimezone: string;
+  institutionName: string;
   complaintQrBase: string;
 };
 export type Challenge = {

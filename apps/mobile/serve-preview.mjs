@@ -3,7 +3,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 const root = join(import.meta.dir, "dist");
-const api = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8787";
+const api = process.env.API_PROXY_TARGET ?? `http://127.0.0.1:${process.env.API_PORT ?? "8787"}`;
 const types = {
   ".html": "text/html",
   ".js": "text/javascript",

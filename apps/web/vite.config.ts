@@ -17,7 +17,12 @@ export default defineConfig(({ command }) => {
       host: "0.0.0.0",
       port: 5173,
       allowedHosts: true,
-      proxy: { "/api": { target: "http://127.0.0.1:8787", changeOrigin: true } },
+      proxy: {
+        "/api": {
+          target: `http://localhost:${process.env.API_PORT ?? "8087"}`,
+          changeOrigin: true,
+        },
+      },
     },
   };
 });

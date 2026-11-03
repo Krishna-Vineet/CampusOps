@@ -45,24 +45,24 @@ cache in `/tmp/bun-cache`.
 
 ## Local setup
 
-```bash
+```powershell
 bun install
-cp .env.example .env
-# Fill DATABASE_URL (or DATABASE_URL_POOLED), JWT_ACCESS_SECRET, REFRESH_TOKEN_PEPPER.
-# For local demo review keep:
-#   DEMO_MODE=true
-#   EMAIL_MODE=demo
-#   EXPOSE_DEMO_OTP=true
-#   STORAGE_MODE=disabled   # or s3 with the AWS_* / S3_BUCKET group
+Copy-Item .env.api.example .env.api
+Copy-Item .env.web.example .env.web
+Copy-Item .env.mobile.example .env.mobile
+# Put database credentials and API secrets only in .env.api.
+# Set the same API port in .env.api PORT, .env.web API_PORT, and .env.mobile URL.
 bun run db:migrate
-bun run db:seed             # optional; set SEED_DEMO_PASSWORD to enable demo-account login
 bun run dev:api
 bun run dev:web
+bun run dev:mobile
 ```
 
 The web dev server proxies `/api` to the API. Browser code uses relative URLs only, so the same build works locally and behind one origin in production.
 
 ## Environment groups
+
+Local app env files are separate: `.env.api` holds server secrets, `.env.web` holds only the local API proxy port, and `.env.mobile` holds the public Expo API URL. Root scripts explicitly load the correct file for each app.
 
 | Group | Variables | Notes |
 |---|---|---|
@@ -94,7 +94,7 @@ bun run typecheck
 bun run test          # uses apps/api/bunfig.toml preload; requires TEST_DATABASE_URL
 bun run build:web
 bun run build:mobile:web   # static Expo web export for the mobile review preview
-PORT=8081 bun run preview:mobile
+bun run preview:mobile
 bun run db:check
 bun run jobs:run      # one maintenance pass: hold expiry, lifecycle, outbox, pruning
 ```

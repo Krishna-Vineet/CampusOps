@@ -154,6 +154,17 @@ export const departments = pgTable("departments", {
   createdAt: createdAt(),
 });
 
+export const programs = pgTable(
+  "programs",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("programs_name_unique").on(sql`lower(${t.name})`)],
+);
+
 export const users = pgTable(
   "users",
   {

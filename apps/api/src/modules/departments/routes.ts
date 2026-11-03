@@ -9,8 +9,13 @@ import * as service from "./service";
 export const departmentRoutes = new Hono();
 departmentRoutes.use("*", authenticate, requireActiveAccount);
 
-// Any active account may read the list: club, resource and staff forms need it.
+// Authenticated reference data; public registration uses /auth/programs.
 departmentRoutes.get("/", async (c) => ok(c, await service.listDepartments()));
+departmentRoutes.get("/programs", async (c) => ok(c, await service.listPrograms()));
+departmentRoutes.post("/programs", requireRole("ADMIN"), async (c) => {
+  const input = await parseJson(c, schemas.createProgramSchema);
+  return ok(c, await service.createProgram(input.name, auditContext(c)), 201);
+});
 
 departmentRoutes.post("/", requireRole("ADMIN"), async (c) => {
   const input = await parseJson(c, schemas.createDepartmentSchema);

@@ -21,7 +21,7 @@ export const registerCollegeSchema = z.object({
   departmentId: z.string().uuid(),
   program: z.string().trim().max(120).optional(),
   graduationYear: z.number().int().min(2000).max(2100).optional(),
-  collegeIdNumber: z.string().trim().min(1, "College ID number is required.").max(60),
+  collegeIdNumber: z.string().trim().max(60).optional(),
   client: clientSchema,
 });
 

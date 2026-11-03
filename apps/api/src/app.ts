@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
-import { env } from "./config/env";
+import { effectiveEmailMode, env, shouldExposeDemoOtp } from "./config/env";
 import { errorHandler } from "./middleware/error-handler";
 import { idempotent } from "./middleware/idempotency";
 import { requestId } from "./middleware/request-id";
@@ -59,10 +59,11 @@ export function createApp() {
   app.get("/api/v1/config", (c) =>
     ok(c, {
       demoMode: env.DEMO_MODE,
-      emailMode: env.EMAIL_MODE ?? (env.DEMO_MODE ? "demo" : null),
-      exposeDemoOtp: env.DEMO_MODE && env.EMAIL_MODE === "demo" && env.EXPOSE_DEMO_OTP,
+      emailMode: effectiveEmailMode(),
+      exposeDemoOtp: shouldExposeDemoOtp(),
       storageMode: env.STORAGE_MODE,
       campusTimezone: env.CAMPUS_TIMEZONE,
+      institutionName: env.INSTITUTION_NAME,
       complaintQrBase: env.COMPLAINT_QR_BASE,
     }),
   );

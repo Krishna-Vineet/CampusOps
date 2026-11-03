@@ -555,12 +555,19 @@ function DepartmentsSection() {
   const action = useAction();
   const toast = useToast();
   const [items, setItems] = useState<Department[]>([]);
+  const [programs, setPrograms] = useState<Array<{ id: string; name: string }>>([]);
+  const [programName, setProgramName] = useState("");
   const [form, setForm] = useState({ code: "", name: "" });
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setItems((await api<{ items: Department[] }>("/departments")).items);
+      const [departmentResult, programResult] = await Promise.all([
+        api<{ items: Department[] }>("/departments"),
+        api<{ items: Array<{ id: string; name: string }> }>("/departments/programs"),
+      ]);
+      setItems(departmentResult.items);
+      setPrograms(programResult.items);
     } catch (err) {
       toast.err(errorMessage(err));
     }
@@ -577,6 +584,16 @@ function DepartmentsSection() {
       setForm({ code: "", name: "" });
       await load();
       return "Department created.";
+    });
+  }
+
+  async function createProgram(e: React.FormEvent) {
+    e.preventDefault();
+    await action.run(async () => {
+      await api("/departments/programs", { name: programName.trim() });
+      setProgramName("");
+      await load();
+      return "Programme added.";
     });
   }
 
@@ -632,6 +649,36 @@ function DepartmentsSection() {
             </table>
           </div>
         )}
+      </Card>
+
+      <Card title="Student programmes">
+        <p className="meta">Add the programme options students can select during registration.</p>
+        {programs.length ? (
+          <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+            {programs.map((program) => (
+              <span className="badge" key={program.id}>
+                {program.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <Empty>No programmes added yet.</Empty>
+        )}
+        <form className="form" onSubmit={createProgram}>
+          <Field label="Programme name">
+            <input
+              required
+              minLength={2}
+              maxLength={120}
+              value={programName}
+              onChange={(e) => setProgramName(e.target.value)}
+              placeholder="Bachelor of Technology"
+            />
+          </Field>
+          <button type="submit" disabled={action.busy}>
+            Add programme
+          </button>
+        </form>
       </Card>
 
       <Card title="Create a department">

@@ -1,25 +1,27 @@
 # Environment variables: what goes where
 
-## The three places config lives
+## Keep local environments separate
 
-| Place | File / UI | Who reads it | Secret? |
-|---|---|---|---|
-| **Local** | `.env.local` at repo root (git-ignored). Symlink `apps/api/.env.local → ../../.env.local`, or `set -a; . ./.env.local; set +a` before running. | Bun auto-loads `.env.local` for the process it starts | Yes — never commit |
-| **Render (API)** | Service → Environment | The API process in production | Yes |
-| **Vercel (website)** | Project → Settings → Environment Variables | Only `VITE_*` values are embedded into the static bundle | **Anything `VITE_*` is PUBLIC** |
-| **Mobile builds** | `apps/mobile/.env` or shell env when running `expo start` / EAS | Only `EXPO_PUBLIC_*` values are embedded in the app | **Anything `EXPO_PUBLIC_*` is PUBLIC** |
+Use a separate ignored env file for each app. Root scripts explicitly load only the selected file with Bun's `--no-env-file --env-file=...`; they do not depend on Bun's automatic dotenv lookup.
 
-The website and mobile app never receive database URLs, JWT secrets, Brevo keys or S3 keys. They only know the API origin. All secrets stay on the API host.
+| File | Used by | Put here |
+|---|---|---|
+| `.env.api` | API, migrations, API tests and admin bootstrap | Database URLs, JWT secrets, email/provider and private storage settings |
+| `.env.web` | Vite dev/build | `API_PORT` for the local `/api` proxy; no server secrets |
+| `.env.mobile` | Expo native/mobile | `EXPO_PUBLIC_API_URL` only; this value is embedded in the app and is public |
 
-## Which `.env` file does what
+Copy the templates once from the repo root:
 
-- `.env.example` — committed template with every key and comments. Copy it.
-- `.env.local` — your real local values. Ignored by Git.
-- `apps/api/.env.local` — optional symlink to the root file so `cd apps/api && bun run dev` also works.
-- `apps/mobile/.env` — only `EXPO_PUBLIC_API_URL` (and `MOBILE_SCHEME` if you change it).
-- Vercel/Render dashboards — production values; no file is uploaded.
+```powershell
+Copy-Item .env.api.example .env.api
+Copy-Item .env.web.example .env.web
+Copy-Item .env.mobile.example .env.mobile
+```
 
-Bun load order: process environment > `.env.local` > `.env`. A variable exported in your shell always wins.
+Update all three port values if you change the API port. For a phone, set `EXPO_PUBLIC_API_URL` to `http://<PC-LAN-IPv4>:<API-port>`—never localhost. The API already binds to `0.0.0.0`.
+
+The website and mobile app must never receive database URLs, JWT secrets, Brevo keys or S3 keys. Production values belong in Render/Vercel/EAS environment settings, not local env files.
+
 
 ## Required for every environment
 
@@ -50,7 +52,7 @@ Invalid combinations fail fast at startup with a message naming the variable (fo
 
 ## Website variables (Vercel)
 
-The website uses **relative URLs** (`/api/v1/...`). `vercel.json` rewrites `/api/*` and `/health/*` to your Render API, so the browser sees one origin and the httpOnly refresh cookie works. Therefore the website needs **no** environment variables for normal operation. Do not put secrets in `VITE_*`.
+The website uses **relative URLs** (`/api/v1/...`). `vercel.json` rewrites `/api/*` and `/health/*` to your Render API, so the browser sees one origin and the httpOnly refresh cookie works. Production needs no client-side API variable; `.env.web` only configures the local Vite proxy port. Do not put secrets in `VITE_*`.
 
 If you instead host the API on a different origin without a rewrite, set `WEB_ORIGIN` on the API to the website origin and be aware that third-party cookie blocking can break refresh; the rewrite approach is the supported one.
 
@@ -58,7 +60,7 @@ If you instead host the API on a different origin without a rewrite, set `WEB_OR
 
 | Variable | Where | Meaning |
 |---|---|---|
-| `EXPO_PUBLIC_API_URL` | shell or `apps/mobile/.env` at build time | Absolute API origin, e.g. `https://campusops-api.onrender.com` (no `/api/v1`). Required for native builds; the app shows a setup error if missing. |
+| `EXPO_PUBLIC_API_URL` | `.env.mobile` at build time | Absolute API origin, e.g. `https://campusops-api.onrender.com` (no `/api/v1`). For a phone on local Wi-Fi, use the PC's LAN IPv4 and API port. |
 | `MOBILE_SCHEME` | app config | Deep-link scheme (`campusops`). |
 | `API_PROXY_TARGET`, `PORT` | `serve-preview.mjs` only | Browser review preview proxy; not part of native builds. |
 
@@ -66,4 +68,4 @@ If you instead host the API on a different origin without a rewrite, set `WEB_OR
 
 - Never paste secrets into chat, issues, screenshots or commits.
 - Rotate `JWT_ACCESS_SECRET` to invalidate all access tokens; rotate `REFRESH_TOKEN_PEPPER` to invalidate all refresh tokens; rotate `QR_SIGNING_SECRET` to invalidate outstanding QR codes.
-- `.gitignore` excludes `.env` and `.env.*` except `.env.example`.
+- `.gitignore` excludes `.env` and `.env.*`, while allowing the committed `.env.*.example` templates.

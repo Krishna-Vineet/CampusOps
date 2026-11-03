@@ -18,6 +18,10 @@ const envSchema = z
     APP_BASE_URL: z.preprocess(emptyToUndefined, z.string().url().default("http://localhost:5173")),
     MOBILE_SCHEME: z.preprocess(emptyToUndefined, z.string().default("campusops")),
     CAMPUS_TIMEZONE: z.preprocess(emptyToUndefined, z.string().default(DEFAULT_CAMPUS_TIMEZONE)),
+    INSTITUTION_NAME: z.preprocess(
+      emptyToUndefined,
+      z.string().trim().min(2).max(160).default("Campus"),
+    ),
     QR_TTL_SECONDS: z.coerce.number().int().min(15).max(300).default(DEFAULT_QR_TTL_SECONDS),
     // Optional: lets QR signing rotate independently of session signing. When
     // unset the key is derived from JWT_ACCESS_SECRET with a distinct label.
@@ -112,8 +116,16 @@ const envSchema = z
     if (productionDemo && !e.ALLOW_PRODUCTION_DEMO) {
       add("ALLOW_PRODUCTION_DEMO", "Production demo requires explicit ALLOW_PRODUCTION_DEMO=true.");
     }
-    if (e.NODE_ENV === "production" && !e.DEMO_MODE && (e.EMAIL_MODE === "demo" || !e.EMAIL_MODE)) {
-      add("EMAIL_MODE", "Production non-demo requires EMAIL_MODE=brevo or resend.");
+    if (
+      e.NODE_ENV === "production" &&
+      !e.DEMO_MODE &&
+      e.EMAIL_MODE !== "resend" &&
+      !(e.BREVO_API_KEY || e.EMAIL_PROVIDER_API_KEY)
+    ) {
+      add(
+        "BREVO_API_KEY",
+        "Production defaults to Brevo; configure BREVO_API_KEY or explicitly select Resend.",
+      );
     }
     if (e.EMAIL_MODE === "demo" && !e.DEMO_MODE) {
       add("EMAIL_MODE", "EMAIL_MODE=demo requires DEMO_MODE=true.");
@@ -199,7 +211,8 @@ export function authConfig(e: Env = env): AuthConfig {
 
 export function effectiveEmailMode(e: Env = env): "demo" | "brevo" | "resend" | null {
   if (e.EMAIL_MODE) return e.EMAIL_MODE;
-  return e.DEMO_MODE ? "demo" : null;
+  if (e.DEMO_MODE) return "demo";
+  return e.NODE_ENV === "production" ? "brevo" : null;
 }
 
 export function isDevEmailMode(e: Env = env): boolean {

@@ -30,5 +30,5 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // No icon/colour is set so the app keeps the OS default notification look.
     "expo-notifications",
   ],
-  extra: { apiUrl: process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.41:8087" },
+  extra: { apiUrl: process.env.EXPO_PUBLIC_API_URL ?? "" },
 });

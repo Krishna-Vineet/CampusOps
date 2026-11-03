@@ -1,5 +1,5 @@
 import { CLUB_ROLE_LABELS, type ClubRole } from "@campusops/shared/ui";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog, Pager, useAction, useToast } from "../components/feedback";
 import { Card, Empty, Field, formatWhen } from "../components/ui";
 import { type Page, api, errorMessage, isForbidden, query } from "../lib/api";
@@ -33,6 +33,8 @@ export function ClubsPanel() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Club | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const selectedClubId = useRef<string | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [creating, setCreating] = useState(false);
@@ -85,7 +87,10 @@ export function ClubsPanel() {
     id ? (departments.find((d) => d.id === id)?.name ?? "—") : "Institution-wide";
 
   async function openClub(club: Club) {
+    selectedClubId.current = club.id;
     setSelected(club);
+    setMembersLoading(true);
+    setCanManage(false);
     setMembers([]);
     setCandidates([]);
     setCandidateQ("");
@@ -96,19 +101,24 @@ export function ClubsPanel() {
     // so a 403 here simply means "read-only for you", not a broken screen.
     try {
       const rows = await api<MemberRow[]>(`/clubs/${club.id}/members`);
+      if (selectedClubId.current !== club.id) return;
       setMembers(Array.isArray(rows) ? rows : []);
       setCanManage(true);
     } catch (err) {
       // 403 legitimately means "read-only viewer". Anything else is a real
       // failure and must not masquerade as a permission state.
-      setCanManage(false);
-      if (!isForbidden(err)) toast.err(errorMessage(err));
+      if (selectedClubId.current === club.id) {
+        setCanManage(false);
+        if (!isForbidden(err)) toast.err(errorMessage(err));
+      }
+    } finally {
+      if (selectedClubId.current === club.id) setMembersLoading(false);
     }
   }
 
   async function reloadMembers(clubId: string) {
     const rows = await api<MemberRow[]>(`/clubs/${clubId}/members`);
-    setMembers(Array.isArray(rows) ? rows : []);
+    if (selectedClubId.current === clubId) setMembers(Array.isArray(rows) ? rows : []);
   }
 
   async function create(e: React.FormEvent) {
@@ -349,7 +359,15 @@ export function ClubsPanel() {
                   Edit
                 </button>
               )}
-              <button type="button" className="ghost" onClick={() => setSelected(null)}>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  selectedClubId.current = null;
+                  setSelected(null);
+                  setMembersLoading(false);
+                }}
+              >
                 Close
               </button>
             </div>
@@ -414,7 +432,9 @@ export function ClubsPanel() {
           )}
 
           <h3>Club team</h3>
-          {!canManage ? (
+          {membersLoading ? (
+            <output className="meta">Loading club members…</output>
+          ) : !canManage ? (
             <p className="meta">
               Coordinator management is limited to the club lead and Admin. Faculty are added by the
               department&apos;s HOD/Dean or Admin.

@@ -389,10 +389,6 @@ export function ScannerScreen({ onComplaint }: { onComplaint: (id: string) => vo
         <Card title="Confirm the person in front of you">
           <Row label="Pass holder" value={inspection.participant.fullName} />
           <Row label="Email" value={inspection.participant.email} />
-          <Row
-            label="College ID"
-            value={inspection.participant.collegeIdNumber ?? "Not on file — ask the coordinator"}
-          />
           <Row label="QR" value={inspection.checkpoint.name} />
           {inspection.standing.nextDirection && (
             <Badge

@@ -7,6 +7,7 @@ import type { Challenge } from "../lib/types";
 
 type Mode = "login" | "college" | "outsider" | "verify" | "forgot" | "reset";
 type Department = { id: string; name: string; code: string };
+type Program = { id: string; name: string };
 
 export function AuthScreen() {
   const { signIn, config } = useSession();
@@ -16,9 +17,12 @@ export function AuthScreen() {
   const [fullName, setFullName] = useState("");
   const [institutionName, setInstitutionName] = useState("");
   const [rollNumber, setRollNumber] = useState("");
-  const [collegeIdNumber, setCollegeIdNumber] = useState("");
+  const [program, setProgram] = useState("");
+  const [graduationYear, setGraduationYear] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [departmentId, setDepartmentId] = useState("");
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
   const [otp, setOtp] = useState("");
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +35,13 @@ export function AuthScreen() {
         .then((d) => setDepartments(d.items))
         .catch((e) => setError(errorMessage(e)));
   }, [mode, departments.length]);
+
+  useEffect(() => {
+    if (mode === "college" && programs.length === 0)
+      api<{ items: Program[] }>("/auth/programs")
+        .then((result) => setPrograms(result.items))
+        .catch((e) => setError(errorMessage(e)));
+  }, [mode, programs.length]);
 
   function go(next: Mode) {
     setMode(next);
@@ -65,16 +76,21 @@ export function AuthScreen() {
         await signIn(result);
       } else if (mode === "college" || mode === "outsider") {
         if (!departmentId && mode === "college") throw new Error("Choose your department.");
+        if (!program && mode === "college") throw new Error("Choose your programme.");
+        if (mode === "college" && graduationYear && !/^20\d{2}$/.test(graduationYear))
+          throw new Error("Enter a valid four-digit graduation year.");
         const body = {
           email: normalized,
           password,
           fullName: fullName.trim(),
-          institutionName: institutionName.trim(),
+          institutionName:
+            mode === "college" ? (config?.institutionName ?? "Campus") : institutionName.trim(),
           client: "mobile",
           ...(mode === "college"
             ? {
                 rollNumber: rollNumber.trim(),
-                collegeIdNumber: collegeIdNumber.trim(),
+                program: program.trim() || undefined,
+                graduationYear: graduationYear ? Number(graduationYear) : undefined,
                 departmentId,
               }
             : {}),
@@ -173,29 +189,48 @@ export function AuthScreen() {
               onChangeText={setFullName}
               autoCapitalize="sentences"
             />
-            <Field
-              label="Institution"
-              value={institutionName}
-              onChangeText={setInstitutionName}
-              autoCapitalize="sentences"
-            />
+            {mode === "outsider" && (
+              <Field
+                label="Institution"
+                value={institutionName}
+                onChangeText={setInstitutionName}
+                autoCapitalize="sentences"
+              />
+            )}
           </>
         )}
         {mode === "college" && (
           <>
             <Field label="Roll number" value={rollNumber} onChangeText={setRollNumber} />
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontWeight: "600" }}>Programme</Text>
+              {programs.length === 0 ? (
+                <Text style={{ color: "#6b7085" }}>
+                  Programmes have not been added yet. Please contact your administrator.
+                </Text>
+              ) : (
+                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                  {programs.map((item) => (
+                    <Chip
+                      key={item.id}
+                      label={item.name}
+                      selected={program === item.name}
+                      onPress={() => setProgram(item.name)}
+                    />
+                  ))}
+                </View>
+              )}
+            </View>
             <Field
-              label="College ID number"
-              value={collegeIdNumber}
-              onChangeText={setCollegeIdNumber}
-              hint="Faculty verify this against your college record."
+              label="Graduation year"
+              value={graduationYear}
+              onChangeText={setGraduationYear}
+              keyboardType="numeric"
+              maxLength={4}
+              placeholder={String(new Date().getFullYear() + 4)}
             />
-            <Field
-              label="Department"
-              value={departments.find((d) => d.id === departmentId)?.name ?? ""}
-              onChangeText={() => {}}
-              hint="Choose your department below."
-            />
+            
+            <Text style={{ fontWeight: "600" }}>Department</Text>
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
               {departments.map((d) => (
                 <Chip
@@ -230,9 +265,16 @@ export function AuthScreen() {
             label={mode === "reset" || registering ? "New password" : "Password"}
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={!showPassword}
             hint={registering || mode === "reset" ? "At least 10 characters." : undefined}
             testID="password"
+          />
+        )}
+        {mode !== "forgot" && mode !== "verify" && (
+          <Button
+            label={showPassword ? "Hide password" : "Show password"}
+            variant="ghost"
+            onPress={() => setShowPassword((value) => !value)}
           />
         )}
         <Button

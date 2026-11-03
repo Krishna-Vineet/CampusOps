@@ -17,13 +17,16 @@ Latest phase record: [Phase 6 report](phase6-report.md) · [Phase 6 critic audit
 
 ## 60-second version
 
-```bash
-bun install                      # one lockfile, all apps + packages
-cp .env.example .env.local       # fill DATABASE_URL + two secrets (see environment.md)
-bun run db:migrate && bun run db:seed
-bun run dev:api                  # http://localhost:8787
-bun run dev:web                  # http://localhost:5173  (management website)
-bun run build:mobile:web && PORT=8081 bun run preview:mobile   # mobile review preview
+```powershell
+bun install
+Copy-Item .env.api.example .env.api
+Copy-Item .env.web.example .env.web
+Copy-Item .env.mobile.example .env.mobile
+# Edit app-specific env files, then:
+bun run db:migrate
+bun run dev:api
+bun run dev:web
+bun run dev:mobile
 ```
 
 Demo logins exist only when `SEED_DEMO_PASSWORD` is set locally. Production has no demo accounts; create the first Admin with `bun run admin:bootstrap`.

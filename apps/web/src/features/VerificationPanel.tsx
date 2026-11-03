@@ -16,7 +16,6 @@ type StudentRow = {
     departmentId: string | null;
     program: string | null;
     graduationYear: number | null;
-    collegeIdNumber: string | null;
     photoFileId: string | null;
     idProofFileId: string | null;
     rejectionReason: string | null;
@@ -243,8 +242,6 @@ export function VerificationPanel() {
             <dd>{detail.profile.program ?? "—"}</dd>
             <dt>Graduation year</dt>
             <dd>{detail.profile.graduationYear ?? "—"}</dd>
-            <dt>College ID number</dt>
-            <dd>{detail.profile.collegeIdNumber ?? "—"}</dd>
             {detail.profile.rejectionReason && (
               <>
                 <dt>Previous rejection</dt>

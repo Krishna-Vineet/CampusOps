@@ -1,4 +1,5 @@
 import { ACCOUNT_TYPE_LABELS, GLOBAL_ROLE_LABELS, type GlobalRole } from "@campusops/shared/ui";
+import * as DocumentPicker from "expo-document-picker";
 import { useState } from "react";
 import { View } from "react-native";
 import { Badge, Button, Card, Field, Muted, Note, Row, Screen, Title } from "../components/ui";
@@ -41,6 +42,45 @@ export function ProfileScreen({ onComplaints }: { onComplaints: () => void }) {
     }
   }
 
+  async function uploadIdProof() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled) return;
+      const file = picked.assets[0];
+      if (!file) throw new Error("Choose an image or PDF of your student ID proof.");
+      if (!config || config.storageMode !== "s3")
+        throw new Error(
+          "Secure file storage is not configured yet. Ask your administrator to enable storage.",
+        );
+      const mimeType = file.mimeType ?? "application/octet-stream";
+      const signed = await api<{
+        fileId: string;
+        uploadUrl: string;
+        headers: Record<string, string>;
+      }>("/files/presign", { purpose: "COLLEGE_ID_PROOF", mimeType, sizeBytes: file.size ?? 0 });
+      const blob = await (await fetch(file.uri)).blob();
+      const uploaded = await fetch(signed.uploadUrl, {
+        method: "PUT",
+        headers: signed.headers,
+        body: blob,
+      });
+      if (!uploaded.ok) throw new Error(`Upload failed (${uploaded.status}). Try again.`);
+      await api(`/files/${signed.fileId}/complete`, {});
+      await reloadMe();
+      setNotice("Student ID proof uploaded securely. Faculty can now review it.");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function logout(all = false) {
     setBusy(true);
     setError(null);
@@ -74,7 +114,25 @@ export function ProfileScreen({ onComplaints }: { onComplaints: () => void }) {
         <Card title="Student profile">
           <Row label="Institution" value={student.institutionName} />
           <Row label="Roll number" value={student.rollNumber ?? "—"} />
-          <Row label="College ID" value={student.collegeIdNumber ?? "—"} />
+          <Row
+            label="Student ID proof"
+            value={student.idProofFileId ? "Uploaded for faculty review" : "Not uploaded"}
+          />
+          {!student.idProofFileId && (
+            <Button
+              label="Upload student ID proof"
+              variant="ghost"
+              onPress={() => void uploadIdProof()}
+              busy={busy}
+              disabled={config?.storageMode !== "s3"}
+            />
+          )}
+          {config?.storageMode !== "s3" && (
+            <Muted>
+              Secure uploads are unavailable until the administrator configures private object
+              storage.
+            </Muted>
+          )}
           <Row label="Program" value={student.program ?? "—"} />
           <Row
             label="Graduation year"
@@ -183,11 +241,8 @@ export function ProfileScreen({ onComplaints }: { onComplaints: () => void }) {
         />
       </Card>
       <Muted>
-        CampusOps · Evaluation 1 build. API:{" "}
-        {config?.storageMode === "s3"
-          ? "private S3 storage"
-          : "file storage disabled in this environment"}
-        . Email: {config?.emailMode ?? "configured by server"}.
+        CampusOps · Secure account services enabled. API:{" "}
+        {config?.storageMode === "s3" ? "private file storage" : "file storage unavailable"}.
       </Muted>
     </Screen>
   );
@@ -213,7 +268,7 @@ export function PendingScreen() {
       setChallenge(result.verification ?? null);
       setNotice(
         result.verification?.delivery === "DEMO"
-          ? "Demo email mode: use the code below."
+          ? `Demo email mode: use the code ${result.verification.demoOtp}.`
           : "A new code has been sent to your email.",
       );
     } catch (e) {
@@ -235,6 +290,45 @@ export function PendingScreen() {
       setBusy(false);
     }
   }
+  async function uploadIdProof() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled) return;
+      const file = picked.assets[0];
+      if (!file) throw new Error("Choose an image or PDF of your student ID proof.");
+      if (config?.storageMode !== "s3")
+        throw new Error(
+          "Secure file storage is not configured yet. Ask your administrator to enable storage.",
+        );
+      const mimeType = file.mimeType ?? "application/octet-stream";
+      const signed = await api<{
+        fileId: string;
+        uploadUrl: string;
+        headers: Record<string, string>;
+      }>("/files/presign", { purpose: "COLLEGE_ID_PROOF", mimeType, sizeBytes: file.size ?? 0 });
+      const blob = await (await fetch(file.uri)).blob();
+      const uploaded = await fetch(signed.uploadUrl, {
+        method: "PUT",
+        headers: signed.headers,
+        body: blob,
+      });
+      if (!uploaded.ok) throw new Error(`Upload failed (${uploaded.status}). Try again.`);
+      await api(`/files/${signed.fileId}/complete`, {});
+      await reloadMe();
+      setNotice("Student ID proof uploaded securely. Faculty can now review it.");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Screen>
       <Title
@@ -261,6 +355,33 @@ export function PendingScreen() {
         />
         <Note message={error} />
         <Note message={notice} tone="good" />
+        {me.user.status === "PENDING_VERIFICATION" && me.studentProfile && (
+          <>
+            <Note
+              tone={me.studentProfile.idProofFileId ? "good" : "warn"}
+              message={
+                me.studentProfile.idProofFileId
+                  ? "Student ID proof uploaded. Faculty can review your document."
+                  : "No ID proof is on file. Upload a clear image or PDF so faculty can verify your account."
+              }
+            />
+            <Button
+              label={
+                me.studentProfile.idProofFileId ? "Replace ID proof" : "Upload student ID proof"
+              }
+              variant="ghost"
+              onPress={() => void uploadIdProof()}
+              busy={busy}
+              disabled={config?.storageMode !== "s3"}
+            />
+            {config?.storageMode !== "s3" && (
+              <Muted>
+                Secure document uploads are unavailable until the administrator configures private
+                storage.
+              </Muted>
+            )}
+          </>
+        )}
         {me.user.status === "PENDING_EMAIL" && (
           <>
             {config?.exposeDemoOtp && challenge?.demoOtp && (
