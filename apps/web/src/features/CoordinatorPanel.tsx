@@ -6,7 +6,7 @@ import {
   EVENT_TEMPLATE_LABELS,
 } from "@campusops/shared/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pager } from "../components/feedback";
+import { FormDialog, Pager, useToast } from "../components/feedback";
 import { Icon } from "../components/icons";
 import {
   ApprovalBadge,
@@ -22,7 +22,7 @@ import {
   fromLocalInput,
   toLocalInput,
 } from "../components/ui";
-import { type Page, api, errorMessage, query } from "../lib/api";
+import { type Page, api, downloadBlob, errorMessage, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
 import { useSession } from "../lib/session";
 import type {
@@ -89,6 +89,7 @@ export function CoordinatorPanel({
   newDraftSignal,
 }: { focusEventId?: string | null; onFocusConsumed?: () => void; newDraftSignal?: number } = {}) {
   const { isCoordinator } = useSession();
+  const toast = useToast();
   const draftSignal = newDraftSignal ?? 0;
   const [clubs, setClubs] = useState<ClubRow[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -401,124 +402,125 @@ export function CoordinatorPanel({
         />
       </Card>
 
-      {form && (
-        <Card title="New event draft">
-          <form className="form wide" onSubmit={createDraft}>
-            <Field label="Club">
-              <select
-                value={form.clubId}
-                onChange={(e) => setForm({ ...form, clubId: e.target.value })}
-              >
-                {clubs.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Title">
-              <input
-                required
-                minLength={3}
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-              />
-            </Field>
-            <Field label="Template">
-              <select
-                value={form.template}
-                onChange={(e) => setForm({ ...form, template: e.target.value })}
-              >
-                {EVENT_TEMPLATES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Audience">
-              <select
-                value={form.audience}
-                onChange={(e) => setForm({ ...form, audience: e.target.value })}
-              >
-                <option value="COLLEGE_ONLY">College only</option>
-                <option value="OUTSIDERS_ALLOWED">Outsiders allowed</option>
-                <option value="INVITED_ONLY">Invited only</option>
-              </select>
-            </Field>
-            <Field label="Admission">
-              <select
-                value={form.admissionMode}
-                onChange={(e) => setForm({ ...form, admissionMode: e.target.value })}
-              >
-                <option value="FCFS">First come, first served</option>
-                <option value="MANUAL">Manual selection</option>
-              </select>
-            </Field>
-            <Field label="Capacity">
-              <input
-                type="number"
-                min={1}
-                value={form.capacity}
-                onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })}
-              />
-            </Field>
-            <Field label="Starts">
-              <input
-                type="datetime-local"
-                required
-                value={form.startsAt}
-                onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
-              />
-            </Field>
-            <Field label="Ends">
-              <input
-                type="datetime-local"
-                required
-                value={form.endsAt}
-                onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
-              />
-            </Field>
-            <Field label="Registration opens">
-              <input
-                type="datetime-local"
-                required
-                value={form.registrationOpensAt}
-                onChange={(e) => setForm({ ...form, registrationOpensAt: e.target.value })}
-              />
-            </Field>
-            <Field label="Registration closes" hint="Must be at or before the event start.">
-              <input
-                type="datetime-local"
-                required
-                value={form.registrationClosesAt}
-                onChange={(e) => setForm({ ...form, registrationClosesAt: e.target.value })}
-              />
-            </Field>
-            <Field label="Venue summary">
-              <input
-                value={form.venueSummary}
-                onChange={(e) => setForm({ ...form, venueSummary: e.target.value })}
-              />
-            </Field>
-            <Field label="Description">
-              <textarea
-                rows={3}
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-              />
-            </Field>
-            <div className="row">
-              <button type="submit" disabled={busy}>
-                Create draft
-              </button>
-              <button type="button" className="ghost" onClick={() => setForm(null)}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        </Card>
-      )}
+      <FormDialog
+        open={form !== null}
+        title="New event draft"
+        description="Start with the shape of the event. Permissions and resources are requested after the draft exists."
+        submitLabel="Create draft"
+        size="wide"
+        busy={busy}
+        onClose={() => setForm(null)}
+        onSubmit={createDraft}
+      >
+        <Field label="Club">
+          <select
+            value={form?.clubId ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, clubId: e.target.value } : f))}
+          >
+            {clubs.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Title">
+          <input
+            required
+            minLength={3}
+            value={form?.title ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, title: e.target.value } : f))}
+          />
+        </Field>
+        <Field label="Template">
+          <select
+            value={form?.template ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, template: e.target.value } : f))}
+          >
+            {EVENT_TEMPLATES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Audience">
+          <select
+            value={form?.audience ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, audience: e.target.value } : f))}
+          >
+            <option value="COLLEGE_ONLY">College only</option>
+            <option value="OUTSIDERS_ALLOWED">Outsiders allowed</option>
+            <option value="INVITED_ONLY">Invited only</option>
+          </select>
+        </Field>
+        <Field label="Admission">
+          <select
+            value={form?.admissionMode ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, admissionMode: e.target.value } : f))}
+          >
+            <option value="FCFS">First come, first served</option>
+            <option value="MANUAL">Manual selection</option>
+          </select>
+        </Field>
+        <Field label="Capacity">
+          <input
+            type="number"
+            min={1}
+            value={form?.capacity ?? 0}
+            onChange={(e) => setForm((f) => (f ? { ...f, capacity: Number(e.target.value) } : f))}
+          />
+        </Field>
+        <Field label="Starts">
+          <input
+            type="datetime-local"
+            required
+            value={form?.startsAt ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, startsAt: e.target.value } : f))}
+          />
+        </Field>
+        <Field label="Ends">
+          <input
+            type="datetime-local"
+            required
+            value={form?.endsAt ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, endsAt: e.target.value } : f))}
+          />
+        </Field>
+        <Field label="Registration opens">
+          <input
+            type="datetime-local"
+            required
+            value={form?.registrationOpensAt ?? ""}
+            onChange={(e) =>
+              setForm((f) => (f ? { ...f, registrationOpensAt: e.target.value } : f))
+            }
+          />
+        </Field>
+        <Field label="Registration closes" hint="Must be at or before the event start.">
+          <input
+            type="datetime-local"
+            required
+            value={form?.registrationClosesAt ?? ""}
+            onChange={(e) =>
+              setForm((f) => (f ? { ...f, registrationClosesAt: e.target.value } : f))
+            }
+          />
+        </Field>
+        <Field label="Venue summary">
+          <input
+            value={form?.venueSummary ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, venueSummary: e.target.value } : f))}
+          />
+        </Field>
+        <Field label="Description">
+          <textarea
+            rows={3}
+            value={form?.description ?? ""}
+            onChange={(e) => setForm((f) => (f ? { ...f, description: e.target.value } : f))}
+          />
+        </Field>
+      </FormDialog>
 
       {selected && (
         <Card
@@ -531,6 +533,18 @@ export function CoordinatorPanel({
               <span className="badge muted">rev {selected.event.currentRevision}</span>
               <span className="badge muted">{selected.event.capacity} seats</span>
               <EventBadge status={selected.event.status} />
+              <button
+                type="button"
+                className="ghost tiny"
+                onClick={() =>
+                  void downloadBlob(
+                    `/events/${selected.event.id}/calendar.ics`,
+                    `${selected.event.slug}.ics`,
+                  ).catch((err) => toast.err(errorMessage(err)))
+                }
+              >
+                Calendar
+              </button>
             </>
           }
         >

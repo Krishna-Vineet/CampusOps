@@ -184,3 +184,8 @@ authRoutes.post("/change-password", authenticate, async (c) => {
 export const meRoutes = new Hono();
 meRoutes.use("*", authenticate);
 meRoutes.get("/", async (c) => ok(c, await service.getMe(c.get("auth").user.id)));
+
+meRoutes.patch("/", async (c) => {
+  const input = await parseJson(c, schemas.updateMeSchema);
+  return ok(c, await service.updateMe(c.get("auth").user.id, input));
+});

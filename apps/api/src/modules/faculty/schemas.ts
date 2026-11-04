@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { phoneInputSchema } from "../auth/schemas";
 
 export const rejectSchema = z.object({ reason: z.string().trim().min(3).max(500) });
 export const verifySchema = z.object({ note: z.string().trim().max(500).optional() });
 export const profilePatchSchema = z
   .object({
     fullName: z.string().trim().min(2).max(120).optional(),
-    phone: z.string().trim().max(30).nullable().optional(),
+    phone: phoneInputSchema.nullable().optional(),
     institutionName: z.string().trim().min(2).max(160).optional(),
     rollNumber: z.string().trim().min(1).max(40).nullable().optional(),
     departmentId: z.string().uuid().nullable().optional(),

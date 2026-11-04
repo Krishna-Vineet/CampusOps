@@ -252,6 +252,7 @@ export async function registerCollege(input: z.infer<typeof registerCollegeSchem
           status: "PENDING_EMAIL",
           fullName: input.fullName,
           phone: input.phone ?? null,
+          consentAcceptedAt: input.consentAccepted ? new Date() : null,
           passwordUpdatedAt: new Date(),
         })
         .returning();
@@ -300,6 +301,7 @@ export async function registerOutsider(input: z.infer<typeof registerOutsiderSch
           status: "PENDING_EMAIL",
           fullName: input.fullName,
           phone: input.phone ?? null,
+          consentAcceptedAt: input.consentAccepted ? new Date() : null,
           passwordUpdatedAt: new Date(),
         })
         .returning();
@@ -582,8 +584,32 @@ export function publicUser(user: typeof users.$inferSelect) {
     status: user.status,
     emailVerifiedAt: user.emailVerifiedAt,
     phone: user.phone,
+    phoneVerifiedAt: user.phoneVerifiedAt,
     createdAt: user.createdAt,
   };
+}
+
+export async function updateMe(
+  userId: string,
+  input: { fullName?: string | undefined; phone?: string | null | undefined },
+) {
+  const { db } = getDb();
+  const [current] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!current) throw new ApiError("NOT_FOUND", "User not found.");
+  const nextPhone = input.phone === undefined ? current.phone : input.phone;
+  const phoneChanged = nextPhone !== current.phone;
+  const [updated] = await db
+    .update(users)
+    .set({
+      ...(input.fullName === undefined ? {} : { fullName: input.fullName }),
+      ...(input.phone === undefined ? {} : { phone: input.phone }),
+      ...(phoneChanged ? { phoneVerifiedAt: null } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId))
+    .returning();
+  if (!updated) throw new ApiError("INTERNAL_ERROR", "Profile update failed.");
+  return getMe(updated.id);
 }
 
 export async function getMe(userId: string) {

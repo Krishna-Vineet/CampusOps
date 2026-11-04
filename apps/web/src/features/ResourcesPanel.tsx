@@ -4,7 +4,7 @@ import {
   type ResourceStatus,
 } from "@campusops/shared/ui";
 import { useCallback, useEffect, useState } from "react";
-import { ConfirmDialog, Pager, useAction, useToast } from "../components/feedback";
+import { ConfirmDialog, FormDialog, Pager, useAction, useToast } from "../components/feedback";
 import {
   Card,
   Empty,
@@ -229,6 +229,7 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
   const [selected, setSelected] = useState<ResourceRow | null>(null);
   const [unitForm, setUnitForm] = useState({ label: "", notes: "" });
   const [retire, setRetire] = useState<Unit | null>(null);
+  const [unitOpen, setUnitOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -300,6 +301,7 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
       const full = await api<ResourceRow>(`/resources/${selected.id}`);
       setSelected({ ...full, canManage: selected.canManage });
       setUnitForm({ label: "", notes: "" });
+      setUnitOpen(false);
       await load();
       return "Unit added.";
     });
@@ -337,8 +339,8 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
         title="Resource catalogue"
         actions={
           mayManage ? (
-            <button type="button" onClick={() => setCreating((v) => !v)}>
-              {creating ? "Close" : "Add resource"}
+            <button type="button" onClick={() => setCreating(true)}>
+              Add resource
             </button>
           ) : undefined
         }
@@ -348,74 +350,6 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
             Only Admin and HOD/Dean can change the inventory. You can browse it and check
             availability.
           </p>
-        )}
-
-        {creating && (
-          <form className="form" onSubmit={create}>
-            <div className="grid-2">
-              <Field label="Name">
-                <input
-                  required
-                  minLength={2}
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                />
-              </Field>
-              <Field label="Capacity (optional)">
-                <input
-                  type="number"
-                  min={1}
-                  value={form.capacity}
-                  onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-                />
-              </Field>
-              <Field
-                label="Owning department"
-                hint={
-                  scopedOnly
-                    ? "Resources you add must belong to a department you head."
-                    : "Leave institution-wide for shared inventory."
-                }
-              >
-                <select
-                  required={scopedOnly}
-                  value={form.departmentId}
-                  onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
-                >
-                  {!scopedOnly && <option value="">Institution-wide</option>}
-                  {departments
-                    .filter((d) => !scopedOnly || scopedDepartmentIds.includes(d.id))
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                </select>
-              </Field>
-            </div>
-            <Field label="Description">
-              <textarea
-                rows={2}
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-              />
-            </Field>
-            <Field label="Bookable units (one per line)">
-              <textarea
-                rows={3}
-                placeholder={"Lab 2 Room\nProjector 01"}
-                value={form.unitLabels}
-                onChange={(e) => setForm({ ...form, unitLabels: e.target.value })}
-              />
-            </Field>
-            <button type="submit" disabled={action.busy}>
-              Create resource
-            </button>
-            <p className="hint">
-              Bookings attach to a unit, not the resource, so two projectors of the same model can
-              be booked independently.
-            </p>
-          </form>
         )}
 
         <div className="toolbar">
@@ -478,13 +412,88 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
         />
       </Card>
 
+      <FormDialog
+        open={creating}
+        title="Add a resource"
+        description="Bookings attach to a unit, not the resource, so two projectors of the same model can be booked independently."
+        submitLabel="Create resource"
+        size="lg"
+        busy={action.busy}
+        onClose={() => setCreating(false)}
+        onSubmit={create}
+      >
+        <div className="grid-2">
+          <Field label="Name">
+            <input
+              required
+              minLength={2}
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </Field>
+          <Field label="Capacity (optional)">
+            <input
+              type="number"
+              min={1}
+              value={form.capacity}
+              onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="Owning department"
+            hint={
+              scopedOnly
+                ? "Resources you add must belong to a department you head."
+                : "Leave institution-wide for shared inventory."
+            }
+          >
+            <select
+              required={scopedOnly}
+              value={form.departmentId}
+              onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+            >
+              {!scopedOnly && <option value="">Institution-wide</option>}
+              {departments
+                .filter((d) => !scopedOnly || scopedDepartmentIds.includes(d.id))
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+            </select>
+          </Field>
+        </div>
+        <Field label="Description">
+          <textarea
+            rows={2}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+          />
+        </Field>
+        <Field label="Bookable units (one per line)">
+          <textarea
+            rows={3}
+            placeholder={"Lab 2 Room\nProjector 01"}
+            value={form.unitLabels}
+            onChange={(e) => setForm({ ...form, unitLabels: e.target.value })}
+          />
+        </Field>
+      </FormDialog>
+
       {selected && (
         <Card
           title={selected.name}
           actions={
-            <button type="button" className="ghost" onClick={() => setSelected(null)}>
-              Close
-            </button>
+            <div className="row" style={{ gap: "0.35rem" }}>
+              {selected.canManage && (
+                <button type="button" className="ghost" onClick={() => setUnitOpen(true)}>
+                  Add unit
+                </button>
+              )}
+              <button type="button" className="ghost" onClick={() => setSelected(null)}>
+                Close
+              </button>
+            </div>
           }
         >
           <dl className="kv">
@@ -495,22 +504,6 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
             <dt>Department</dt>
             <dd>{deptName(selected.departmentId)}</dd>
           </dl>
-
-          {selected.canManage && (
-            <div className="row" style={{ gap: "0.5rem", marginBottom: "0.75rem" }}>
-              {RESOURCE_STATUSES.filter((s) => s !== selected.status).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className="ghost tiny"
-                  disabled={action.busy}
-                  onClick={() => setResourceStatus(s)}
-                >
-                  Mark {RESOURCE_STATUS_LABELS[s].toLowerCase()}
-                </button>
-              ))}
-            </div>
-          )}
 
           <h3>Units</h3>
           {selected.units.length === 0 ? (
@@ -553,32 +546,34 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
               </table>
             </div>
           )}
-
-          {selected.canManage && (
-            <form className="form" onSubmit={addUnit}>
-              <h3>Add a unit</h3>
-              <div className="grid-2">
-                <Field label="Label">
-                  <input
-                    required
-                    value={unitForm.label}
-                    onChange={(e) => setUnitForm({ ...unitForm, label: e.target.value })}
-                  />
-                </Field>
-                <Field label="Notes">
-                  <input
-                    value={unitForm.notes}
-                    onChange={(e) => setUnitForm({ ...unitForm, notes: e.target.value })}
-                  />
-                </Field>
-              </div>
-              <button type="submit" disabled={action.busy}>
-                Add unit
-              </button>
-            </form>
-          )}
         </Card>
       )}
+
+      <FormDialog
+        open={unitOpen}
+        title="Add a bookable unit"
+        description="Each unit is booked independently and appears in the availability calendar."
+        submitLabel="Add unit"
+        busy={action.busy}
+        onClose={() => setUnitOpen(false)}
+        onSubmit={addUnit}
+      >
+        <div className="grid-2">
+          <Field label="Label">
+            <input
+              required
+              value={unitForm.label}
+              onChange={(e) => setUnitForm({ ...unitForm, label: e.target.value })}
+            />
+          </Field>
+          <Field label="Notes">
+            <input
+              value={unitForm.notes}
+              onChange={(e) => setUnitForm({ ...unitForm, notes: e.target.value })}
+            />
+          </Field>
+        </div>
+      </FormDialog>
 
       <ConfirmDialog
         open={retire !== null}

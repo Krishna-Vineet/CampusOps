@@ -6,6 +6,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { effectiveEmailMode, env, shouldExposeDemoOtp } from "./config/env";
 import { errorHandler } from "./middleware/error-handler";
 import { idempotent } from "./middleware/idempotency";
+import { opportunisticMaintenance } from "./middleware/maintenance";
 import { requestId } from "./middleware/request-id";
 import { accessRoutes, eventAccessRoutes, myPassRoutes } from "./modules/access/routes";
 import { adminRoutes } from "./modules/admin/routes";
@@ -28,13 +29,16 @@ import { departmentRoutes } from "./modules/departments/routes";
 import { clubEventRoutes, eventRoutes, myEventRoutes } from "./modules/events/routes";
 import { facultyRoutes } from "./modules/faculty/routes";
 import { healthRoutes } from "./modules/health/routes";
+import { jobRoutes } from "./modules/jobs/routes";
 import { eventQuizRoutes, quizRoutes } from "./modules/quizzes/routes";
 import { eventRosterRoutes } from "./modules/registrations/routes";
 import { eventRegistrationRoutes, myRegistrationRoutes } from "./modules/registrations/routes";
 import { resourceRoutes, resourceUnitRoutes } from "./modules/resources/routes";
+import { searchRoutes } from "./modules/search/routes";
 import { storageRoutes } from "./modules/storage/routes";
 import { buildOpenApiSpec } from "./openapi/spec";
 import { ApiError } from "./utils/api-error";
+import { log } from "./utils/logger";
 import { ok } from "./utils/response";
 
 export function createApp() {
@@ -42,6 +46,21 @@ export function createApp() {
   app.use("*", requestId);
   app.use("*", secureHeaders());
   app.use("*", bodyLimit({ maxSize: 1024 * 1024 }));
+  app.use("*", async (c, next) => {
+    const started = performance.now();
+    await next();
+    const ms = Math.round(performance.now() - started);
+    c.header("X-Response-Time", `${ms}ms`);
+    if (ms > 1500)
+      log.warn("slow_request", {
+        requestId: c.get("requestId") ?? null,
+        method: c.req.method,
+        path: c.req.path,
+        status: c.res.status,
+        ms,
+      });
+  });
+  app.use("*", opportunisticMaintenance);
   app.use(
     "*",
     cors({
@@ -71,6 +90,7 @@ export function createApp() {
   app.get("/api/v1/openapi.json", (c) => c.json(openApiSpec));
   app.route("/health", healthRoutes);
   app.route("/api/v1/health", healthRoutes);
+  app.route("/api/v1/jobs", jobRoutes);
   app.use("/api/v1/auth/register/*", idempotent("auth-register"));
   app.use("/api/v1/admin/staff", idempotent("admin-staff"));
   app.route("/api/v1/auth", authRoutes);
@@ -105,6 +125,7 @@ export function createApp() {
   app.route("/api/v1/announcements", announcementRoutes);
   app.route("/api/v1/access", accessRoutes);
   app.route("/api/v1/complaints", complaintRoutes);
+  app.route("/api/v1/search", searchRoutes);
   app.notFound((c) => {
     throw new ApiError("NOT_FOUND", "Route not found.");
   });

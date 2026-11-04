@@ -1,4 +1,12 @@
 import { z } from "zod";
+import { normalizePhone } from "../../utils/phone";
+
+export const phoneInputSchema = z
+  .string()
+  .trim()
+  .max(30)
+  .refine((value) => normalizePhone(value) !== null, "Enter a valid phone number.")
+  .transform((value) => normalizePhone(value) as string);
 
 export const passwordSchema = z
   .string()
@@ -15,7 +23,8 @@ export const registerCollegeSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   fullName: z.string().trim().min(2).max(120),
-  phone: z.string().trim().max(30).optional(),
+  phone: phoneInputSchema.optional(),
+  consentAccepted: z.boolean().optional(),
   institutionName: z.string().trim().min(2).max(160),
   rollNumber: z.string().trim().min(1).max(40),
   departmentId: z.string().uuid(),
@@ -29,7 +38,8 @@ export const registerOutsiderSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   fullName: z.string().trim().min(2).max(120),
-  phone: z.string().trim().max(30).optional(),
+  phone: phoneInputSchema.optional(),
+  consentAccepted: z.boolean().optional(),
   institutionName: z.string().trim().min(2).max(160),
   program: z.string().trim().max(120).optional(),
   graduationYear: z.number().int().min(2000).max(2100).optional(),
@@ -60,3 +70,12 @@ export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(128),
   newPassword: passwordSchema,
 });
+
+export const updateMeSchema = z
+  .object({
+    fullName: z.string().trim().min(2).max(120).optional(),
+    phone: phoneInputSchema.nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });

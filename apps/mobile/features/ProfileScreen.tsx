@@ -1,6 +1,6 @@
 import { ACCOUNT_TYPE_LABELS, GLOBAL_ROLE_LABELS, type GlobalRole } from "@campusops/shared/ui";
 import * as DocumentPicker from "expo-document-picker";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import {
   Badge,
@@ -30,6 +30,13 @@ export function ProfileScreen({ onComplaints }: { onComplaints: () => void }) {
   const [busy, setBusy] = useState(false);
   const [pushNote, setPushNote] = useState<string | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
+  const [phone, setPhone] = useState(me?.user.phone ?? "");
+  const [phoneBusy, setPhoneBusy] = useState(false);
+
+  useEffect(() => {
+    setPhone(me?.user.phone ?? "");
+  }, [me?.user.phone]);
+
   if (!me) return null;
   const student = me.studentProfile;
   async function changePassword() {
@@ -43,6 +50,22 @@ export function ProfileScreen({ onComplaints }: { onComplaints: () => void }) {
       setBusy(false);
     }
   }
+  async function savePhone() {
+    setPhoneBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const trimmed = phone.trim();
+      await api("/me", { phone: trimmed.length > 0 ? trimmed : null }, { method: "PATCH" });
+      await reloadMe();
+      setNotice("Phone number saved. Coordinators will use it if they need to reach you.");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setPhoneBusy(false);
+    }
+  }
+
   async function enablePush() {
     setPushBusy(true);
     setPushNote(null);
@@ -122,11 +145,31 @@ export function ProfileScreen({ onComplaints }: { onComplaints: () => void }) {
       </View>
       <Note message={error} />
       <Note message={notice} tone="good" />
+      <Card title="Contact details">
+        <Muted>
+          A working phone number lets coordinators reach you about waitlists and venue changes. Your
+          college email stays fixed.
+        </Muted>
+        <Field
+          label="Phone number"
+          value={phone}
+          onChangeText={setPhone}
+          placeholder="+91 98765 43210"
+          keyboardType="phone-pad"
+          maxLength={20}
+          hint="Indian mobile numbers, with or without +91."
+        />
+        <Button
+          label={phoneBusy ? "Saving…" : "Save phone number"}
+          onPress={() => void savePhone()}
+          busy={phoneBusy}
+          disabled={phoneBusy || phone.trim() === (me.user.phone ?? "")}
+        />
+      </Card>
       {student && (
         <Card title="Student profile">
           <Row label="Institution" value={student.institutionName} />
           <Row label="Roll number" value={student.rollNumber ?? "—"} />
-          <Row label="Phone" value={me.user.phone ?? "—"} />
           <Row
             label="Student ID proof"
             value={student.idProofFileId ? "Uploaded for faculty review" : "Not uploaded"}
@@ -325,6 +368,13 @@ export function PendingScreen() {
   const [busy, setBusy] = useState(false);
   const [pushNote, setPushNote] = useState<string | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
+  const [phone, setPhone] = useState(me?.user.phone ?? "");
+  const [phoneBusy, setPhoneBusy] = useState(false);
+
+  useEffect(() => {
+    setPhone(me?.user.phone ?? "");
+  }, [me?.user.phone]);
+
   if (!me) return null;
   async function resend() {
     setBusy(true);

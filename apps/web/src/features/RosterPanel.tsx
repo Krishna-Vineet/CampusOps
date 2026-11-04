@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { ConfirmDialog, Loading, Pager, useAction } from "../components/feedback";
+import { ConfirmDialog, Loading, Pager, useAction, useToast } from "../components/feedback";
 import { Card, Empty, ErrorNote, Field, formatWhen } from "../components/ui";
-import { type Page, api, errorMessage, query } from "../lib/api";
+import { type Page, api, downloadBlob, errorMessage, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
 import type { EventRow } from "../lib/types";
 
@@ -55,6 +55,7 @@ const badgeFor = (status: string) =>
  */
 export function RosterPanel({ event, canManage }: { event: EventRow; canManage: boolean }) {
   const action = useAction();
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -130,7 +131,32 @@ export function RosterPanel({ event, canManage }: { event: EventRow; canManage: 
         </div>
       )}
 
-      <Card title="Participants">
+      <Card
+        title="Participants"
+        actions={
+          <button
+            type="button"
+            className="ghost"
+            disabled={action.busy}
+            onClick={() =>
+              void action.run(async () => {
+                try {
+                  await downloadBlob(
+                    `/events/${event.id}/registrations.csv`,
+                    `${event.slug}-participants.csv`,
+                  );
+                  return "Roster exported.";
+                } catch (err) {
+                  toast.err(errorMessage(err));
+                  return undefined;
+                }
+              })
+            }
+          >
+            Export CSV
+          </button>
+        }
+      >
         <form
           className="row"
           style={{ flexWrap: "wrap", marginBottom: 12 }}

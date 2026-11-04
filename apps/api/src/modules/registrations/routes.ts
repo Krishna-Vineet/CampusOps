@@ -77,6 +77,13 @@ export { registerSchema };
 export const eventRosterRoutes = new Hono();
 eventRosterRoutes.use("*", authenticate, requireActiveAccount);
 
+eventRosterRoutes.get("/:id/registrations.csv", async (c) => {
+  const result = await lifecycle.rosterCsv(c.get("auth"), c.req.param("id"));
+  c.header("content-type", "text/csv; charset=utf-8");
+  c.header("content-disposition", `attachment; filename="${result.filename}"`);
+  return c.body(result.csv);
+});
+
 eventRosterRoutes.get("/:id/registrations", async (c) => {
   const query = parseQuery(c, rosterQuerySchema);
   return ok(c, await lifecycle.roster(c.get("auth"), c.req.param("id"), query));

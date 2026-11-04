@@ -1,7 +1,7 @@
 import type { EventStatus } from "@campusops/shared/ui";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/icons";
-import { Card, Empty, EventBadge, Skeleton, formatWhen } from "../components/ui";
+import { CAMPUS_TIME_ZONE, Card, Empty, EventBadge, Skeleton, formatWhen } from "../components/ui";
 import { api, errorMessage } from "../lib/api";
 import { useSession } from "../lib/session";
 
@@ -175,7 +175,8 @@ export const DashboardPanel = memo(function DashboardPanel({
         <div>
           <p className="eyebrow">
             {SCOPE_LABEL[data.scope]} ·{" "}
-            {new Date().toLocaleDateString(undefined, {
+            {new Date().toLocaleDateString("en-IN", {
+              timeZone: CAMPUS_TIME_ZONE,
               weekday: "long",
               day: "numeric",
               month: "long",

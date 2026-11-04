@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ConfirmDialog, Pager, useAction, useToast } from "../components/feedback";
+import { ConfirmDialog, FormDialog, Pager, useAction, useToast } from "../components/feedback";
 import { Card, Empty, Field, formatWhen } from "../components/ui";
 import { type Page, api, downloadBlob, errorMessage, isForbidden, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
@@ -54,6 +54,7 @@ export function VerificationPanel() {
   const [detail, setDetail] = useState<StudentDetail | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [reject, setReject] = useState<StudentDetail | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [edit, setEdit] = useState<{
     fullName: string;
     rollNumber: string;
@@ -94,6 +95,7 @@ export function VerificationPanel() {
     await action.run(async () => {
       const d = await api<StudentDetail>(`/faculty/students/${id}`);
       setDetail(d);
+      setEditOpen(false);
       setEdit({
         fullName: d.user.fullName,
         rollNumber: d.profile.rollNumber ?? "",
@@ -128,7 +130,7 @@ export function VerificationPanel() {
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     if (!detail || !edit) return;
-    await action.run(async () => {
+    const ok = await action.run(async () => {
       await api(
         `/faculty/students/${detail.user.id}/profile`,
         {
@@ -143,6 +145,7 @@ export function VerificationPanel() {
       await open(detail.user.id);
       return "Profile corrected.";
     });
+    if (ok) setEditOpen(false);
   }
 
   async function openProof(fileId: string) {
@@ -300,73 +303,74 @@ export function VerificationPanel() {
                 <button type="button" className="danger" onClick={() => setReject(detail)}>
                   Reject
                 </button>
+                <button type="button" className="ghost" onClick={() => setEditOpen(true)}>
+                  Correct profile
+                </button>
               </div>
               {!detail.user.emailVerifiedAt && (
                 <p className="hint">
                   The student must verify their email address before you can approve the account.
                 </p>
               )}
-
-              {edit && (
-                <form className="form" onSubmit={saveProfile}>
-                  <h3>Correct the profile</h3>
-                  <p className="hint">
-                    Students cannot change these details themselves. Corrections are versioned and
-                    audited.
-                  </p>
-                  <div className="grid-2">
-                    <Field label="Full name">
-                      <input
-                        required
-                        minLength={2}
-                        value={edit.fullName}
-                        onChange={(e) => setEdit({ ...edit, fullName: e.target.value })}
-                      />
-                    </Field>
-                    <Field label="Roll number">
-                      <input
-                        value={edit.rollNumber}
-                        onChange={(e) => setEdit({ ...edit, rollNumber: e.target.value })}
-                      />
-                    </Field>
-                    <Field label="Department">
-                      <select
-                        value={edit.departmentId}
-                        onChange={(e) => setEdit({ ...edit, departmentId: e.target.value })}
-                      >
-                        <option value="">None</option>
-                        {departments.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.name}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Program">
-                      <input
-                        value={edit.program}
-                        onChange={(e) => setEdit({ ...edit, program: e.target.value })}
-                      />
-                    </Field>
-                    <Field label="Graduation year">
-                      <input
-                        type="number"
-                        min={2000}
-                        max={2100}
-                        value={edit.graduationYear}
-                        onChange={(e) => setEdit({ ...edit, graduationYear: e.target.value })}
-                      />
-                    </Field>
-                  </div>
-                  <button type="submit" disabled={action.busy}>
-                    Save corrections
-                  </button>
-                </form>
-              )}
             </>
           )}
         </Card>
       )}
+
+      <FormDialog
+        open={editOpen && edit !== null}
+        title="Correct the student profile"
+        description="Students cannot change these details themselves. Corrections are versioned and audited."
+        submitLabel="Save corrections"
+        busy={action.busy}
+        onClose={() => setEditOpen(false)}
+        onSubmit={saveProfile}
+      >
+        <div className="grid-2">
+          <Field label="Full name">
+            <input
+              required
+              minLength={2}
+              value={edit?.fullName ?? ""}
+              onChange={(e) => setEdit((v) => (v ? { ...v, fullName: e.target.value } : v))}
+            />
+          </Field>
+          <Field label="Roll number">
+            <input
+              value={edit?.rollNumber ?? ""}
+              onChange={(e) => setEdit((v) => (v ? { ...v, rollNumber: e.target.value } : v))}
+            />
+          </Field>
+          <Field label="Department">
+            <select
+              value={edit?.departmentId ?? ""}
+              onChange={(e) => setEdit((v) => (v ? { ...v, departmentId: e.target.value } : v))}
+            >
+              <option value="">None</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Program">
+            <input
+              value={edit?.program ?? ""}
+              onChange={(e) => setEdit((v) => (v ? { ...v, program: e.target.value } : v))}
+            />
+          </Field>
+          <Field label="Graduation year">
+            <input
+              type="number"
+              min={2000}
+              max={2100}
+              value={edit?.graduationYear ?? ""}
+              onChange={(e) => setEdit((v) => (v ? { ...v, graduationYear: e.target.value } : v))}
+            />
+          </Field>
+        </div>
+      </FormDialog>
 
       <ConfirmDialog
         open={reject !== null}

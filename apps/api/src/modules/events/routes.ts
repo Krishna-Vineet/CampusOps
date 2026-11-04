@@ -47,6 +47,36 @@ eventRoutes.get("/:id", async (c) =>
   ok(c, await visibility.getVisibleEvent(c.get("auth"), c.req.param("id"))),
 );
 
+eventRoutes.get("/:id/calendar.ics", async (c) => {
+  const event = await visibility.getVisibleEvent(c.get("auth"), c.req.param("id"));
+  const stamp = (value: Date) =>
+    value
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace(/\.\d{3}Z$/, "Z");
+  const fold = (value: string) => value.replace(/([,;\\])/g, "\\$1").replace(/\r?\n/g, "\\n");
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//CampusOps//Event//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${event.id}@campusops`,
+    `DTSTAMP:${stamp(new Date())}`,
+    `DTSTART:${stamp(new Date(event.startsAt))}`,
+    `DTEND:${stamp(new Date(event.endsAt))}`,
+    `SUMMARY:${fold(event.title)}`,
+    `LOCATION:${fold(event.venueSummary ?? "")}`,
+    `DESCRIPTION:${fold(event.description ?? "")}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  c.header("content-type", "text/calendar; charset=utf-8");
+  c.header("content-disposition", `attachment; filename="${event.slug}.ics"`);
+  return c.body(lines.join("\r\n"));
+});
+
 eventRoutes.patch("/:id", requireEventManage(), async (c) => {
   const input = await parseJson(c, schemas.updateEventSchema);
   return ok(c, await service.updateEvent(c.get("auth"), c.req.param("id"), input, auditContext(c)));

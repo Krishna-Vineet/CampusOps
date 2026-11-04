@@ -236,9 +236,13 @@ export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="kbd">{children}</kbd>;
 }
 
+/** The campus runs on one clock, whatever the visitor's device is set to. */
+export const CAMPUS_TIME_ZONE = "Asia/Kolkata";
+
 export function formatWhen(value: string | null | undefined): string {
   if (!value) return "—";
-  return new Date(value).toLocaleString(undefined, {
+  return new Date(value).toLocaleString("en-IN", {
+    timeZone: CAMPUS_TIME_ZONE,
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -249,7 +253,8 @@ export function formatWhen(value: string | null | undefined): string {
 /** A short campus-style date, e.g. "Mon 3 Nov". */
 export function formatDay(value: string | null | undefined): string {
   if (!value) return "—";
-  return new Date(value).toLocaleDateString(undefined, {
+  return new Date(value).toLocaleDateString("en-IN", {
+    timeZone: CAMPUS_TIME_ZONE,
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -258,12 +263,25 @@ export function formatDay(value: string | null | undefined): string {
 
 /** datetime-local inputs need a local ISO string without the zone suffix. */
 export function toLocalInput(value: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CAMPUS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const at = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "00";
+  return `${at("year")}-${at("month")}-${at("day")}T${at("hour")}:${at("minute")}`;
 }
 
 export function fromLocalInput(value: string): string {
-  return new Date(value).toISOString();
+  const withTime = value.length === 10 ? `${value}T00:00` : value;
+  const withSeconds = withTime.length === 16 ? `${withTime}:00` : withTime;
+  // India has no daylight saving, so a fixed offset is the campus wall clock.
+  return new Date(`${withSeconds}+05:30`).toISOString();
 }
 
 /** Kept for callers that only need a tier label. */

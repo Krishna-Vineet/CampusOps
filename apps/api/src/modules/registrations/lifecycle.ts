@@ -458,3 +458,81 @@ export async function myHistory(auth: AuthContext, eventId: string) {
 }
 
 export { promoteNext };
+
+/**
+ * Full participant export as CSV, scoped exactly like the roster reader.
+ * Exports are deliberately not paginated: a coordinator needs the whole list for
+ * attendance sheets and reconciliation, and a few thousand rows is small.
+ */
+export async function rosterCsv(auth: AuthContext, eventId: string) {
+  await assertEventOrganiserRead(auth, eventId);
+  const { db } = getDb();
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
+  const rows = await db
+    .select({
+      fullName: users.fullName,
+      email: users.email,
+      phone: users.phone,
+      accountType: users.accountType,
+      status: registrations.status,
+      appliedAt: registrations.appliedAt,
+      decidedAt: registrations.decidedAt,
+      queuePosition: registrations.queuePosition,
+      passId: passes.id,
+      checkedInAt: sql<string | null>`(
+        select min(sl.created_at) from scan_logs sl
+        where sl.event_id = ${eventId} and sl.result = 'GRANTED'
+          and sl.pass_id = ${passes.id}
+      )`,
+    })
+    .from(registrations)
+    .innerJoin(users, eq(users.id, registrations.userId))
+    .leftJoin(passes, eq(passes.registrationId, registrations.id))
+    .where(eq(registrations.eventId, eventId))
+    .orderBy(asc(registrations.appliedAt), asc(registrations.id));
+
+  const csvCell = (value: unknown): string => {
+    const text = value === null || value === undefined ? "" : String(value);
+    return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  };
+  const header = [
+    "Name",
+    "Email",
+    "Phone",
+    "Account type",
+    "Status",
+    "Applied at",
+    "Decided at",
+    "Waitlist position",
+    "Pass id",
+    "Checked in at",
+  ];
+  const lines = [header.join(",")];
+  for (const r of rows) {
+    lines.push(
+      [
+        r.fullName,
+        r.email,
+        r.phone ?? "",
+        r.accountType,
+        r.status,
+        r.appliedAt.toISOString(),
+        r.decidedAt?.toISOString() ?? "",
+        r.queuePosition ?? "",
+        r.passId ?? "",
+        r.checkedInAt ? new Date(r.checkedInAt).toISOString() : "",
+      ]
+        .map(csvCell)
+        .join(","),
+    );
+  }
+  const safeSlug = event.slug.replace(/[^a-z0-9-]/gi, "") || "event";
+  const bom = String.fromCharCode(0xfeff);
+  const newline = String.fromCharCode(13, 10);
+  return {
+    filename: `${safeSlug}-participants.csv`,
+    csv: `${bom}${lines.join(newline)}`,
+    count: rows.length,
+  };
+}

@@ -1,6 +1,6 @@
 import { CLUB_ROLE_LABELS, type ClubRole } from "@campusops/shared/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ConfirmDialog, Pager, useAction, useToast } from "../components/feedback";
+import { ConfirmDialog, FormDialog, Pager, useAction, useToast } from "../components/feedback";
 import { Card, Empty, Field, SkeletonRows, formatWhen } from "../components/ui";
 import { type Page, api, errorMessage, isForbidden, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
@@ -240,8 +240,8 @@ export function ClubsPanel() {
         title="Clubs"
         actions={
           isAdmin ? (
-            <button type="button" onClick={() => setCreating((v) => !v)}>
-              {creating ? "Close" : "Create club"}
+            <button type="button" onClick={() => setCreating(true)}>
+              Create club
             </button>
           ) : undefined
         }
@@ -250,62 +250,6 @@ export function ClubsPanel() {
           A club is the unit that owns events, permissions and reports. Every club has coordinators
           who run it and faculty who sign off on it.
         </p>
-
-        {creating && (
-          <form className="form" onSubmit={create}>
-            <div className="grid-2">
-              <Field label="Name">
-                <input
-                  required
-                  minLength={2}
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      name: e.target.value,
-                      slug: e.target.value
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]+/g, "-")
-                        .replace(/^-|-$/g, ""),
-                    })
-                  }
-                />
-              </Field>
-              <Field label="Slug">
-                <input
-                  required
-                  pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                  value={form.slug}
-                  onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                />
-              </Field>
-              <Field label="Department">
-                <select
-                  value={form.departmentId}
-                  onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
-                >
-                  <option value="">Institution-wide</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            <Field label="Description">
-              <textarea
-                rows={2}
-                maxLength={1000}
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-              />
-            </Field>
-            <button type="submit" disabled={action.busy}>
-              Create club
-            </button>
-          </form>
-        )}
 
         {loading ? (
           <SkeletonRows rows={5} />
@@ -349,6 +293,65 @@ export function ClubsPanel() {
         />
       </Card>
 
+      <FormDialog
+        open={creating}
+        title="Create a club"
+        description="The club owns events, permissions and reports. A coordinator can be added next."
+        submitLabel="Create club"
+        busy={action.busy}
+        onClose={() => setCreating(false)}
+        onSubmit={create}
+      >
+        <div className="grid-2">
+          <Field label="Name">
+            <input
+              required
+              minLength={2}
+              value={form.name}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  name: e.target.value,
+                  slug: e.target.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, "-")
+                    .replace(/^-|-$/g, ""),
+                })
+              }
+            />
+          </Field>
+          <Field label="Slug">
+            <input
+              required
+              pattern="[a-z0-9]+(-[a-z0-9]+)*"
+              value={form.slug}
+              onChange={(e) => setForm({ ...form, slug: e.target.value })}
+            />
+          </Field>
+          <Field label="Department">
+            <select
+              value={form.departmentId}
+              onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+            >
+              <option value="">Institution-wide</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <Field label="Description">
+          <textarea
+            rows={2}
+            maxLength={1000}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+          />
+        </Field>
+      </FormDialog>
+
       {selected && (
         <Card
           title={selected.name}
@@ -383,53 +386,6 @@ export function ClubsPanel() {
             <dt>Description</dt>
             <dd>{selected.description || "—"}</dd>
           </dl>
-
-          {editing && (
-            <form className="form" onSubmit={saveEdit}>
-              <h3>Edit club</h3>
-              <div className="grid-2">
-                <Field label="Name">
-                  <input
-                    required
-                    minLength={2}
-                    value={editing.name}
-                    onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                  />
-                </Field>
-                <Field label="Department">
-                  <select
-                    value={editing.departmentId ?? ""}
-                    onChange={(e) =>
-                      setEditing({ ...editing, departmentId: e.target.value || null })
-                    }
-                  >
-                    <option value="">Institution-wide</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-              <Field label="Description">
-                <textarea
-                  rows={2}
-                  maxLength={1000}
-                  value={editing.description ?? ""}
-                  onChange={(e) => setEditing({ ...editing, description: e.target.value })}
-                />
-              </Field>
-              <div className="row" style={{ gap: "0.5rem" }}>
-                <button type="submit" disabled={action.busy}>
-                  Save
-                </button>
-                <button type="button" className="ghost" onClick={() => setEditing(null)}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
 
           <h3>Club team</h3>
           {membersLoading ? (
@@ -626,6 +582,57 @@ export function ClubsPanel() {
           )}
         </Card>
       )}
+
+      <FormDialog
+        open={Boolean(editing)}
+        title="Edit club"
+        submitLabel="Save club"
+        busy={action.busy}
+        onClose={() => setEditing(null)}
+        onSubmit={saveEdit}
+      >
+        <div className="grid-2">
+          <Field label="Name">
+            <input
+              required
+              minLength={2}
+              value={editing?.name ?? ""}
+              onChange={(e) =>
+                setEditing((current) => (current ? { ...current, name: e.target.value } : null))
+              }
+            />
+          </Field>
+          <Field label="Department">
+            <select
+              value={editing?.departmentId ?? ""}
+              onChange={(e) =>
+                setEditing((current) =>
+                  current ? { ...current, departmentId: e.target.value || null } : null,
+                )
+              }
+            >
+              <option value="">Institution-wide</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <Field label="Description">
+          <textarea
+            rows={2}
+            maxLength={1000}
+            value={editing?.description ?? ""}
+            onChange={(e) =>
+              setEditing((current) =>
+                current ? { ...current, description: e.target.value } : null,
+              )
+            }
+          />
+        </Field>
+      </FormDialog>
 
       <ConfirmDialog
         open={remove !== null}

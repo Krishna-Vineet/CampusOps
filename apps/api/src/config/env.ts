@@ -33,6 +33,9 @@ const envSchema = z
     // Deep link encoded in the printable complaint QR. The mobile app claims it.
     COMPLAINT_QR_BASE: z.string().min(3).default("campusops://complaint"),
     TRUST_PROXY_HEADERS: boolFromEnv(false),
+    // How many reverse proxies sit in front of the API. Used to pick the client
+    // address out of X-Forwarded-For instead of trusting the whole chain.
+    TRUSTED_PROXY_HOPS: z.coerce.number().int().min(1).max(10).default(1),
 
     // Neon: runtime prefers the pooled URL; migrations prefer the direct URL.
     DATABASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
@@ -93,6 +96,13 @@ const envSchema = z
     OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(5),
     JOBS_ENABLED: boolFromEnv(false),
     JOB_INTERVAL_SECONDS: z.coerce.number().int().min(30).max(3600).default(120),
+    // Free hosts sleep, so a minute-by-minute cron is not realistic. When this is
+    // on, maintenance runs in the background at most once per interval, triggered
+    // by ordinary API traffic. Cron remains optional, never required.
+    MAINTENANCE_ON_REQUEST: boolFromEnv(true),
+    MAINTENANCE_INTERVAL_SECONDS: z.coerce.number().int().min(30).max(3600).default(120),
+    // Optional bearer for an external scheduler. Unset disables the endpoint.
+    JOB_RUN_TOKEN: z.preprocess(emptyToUndefined, z.string().min(32).max(200).optional()),
     // Operational caps that used to be literals inside services.
     OUTBOX_FANOUT_MAX: z.coerce.number().int().min(1).max(500).default(50),
     INVITATION_LIST_MAX: z.coerce.number().int().min(1).max(5000).default(500),
@@ -102,6 +112,8 @@ const envSchema = z
     // the listed rows are capped and the report says so rather than lying.
     REPORT_MAX_ATTENDEES: z.coerce.number().int().min(1).max(20000).default(2000),
 
+    // JSON logs in production make request ids searchable; pretty logs locally.
+    LOG_JSON: boolFromEnv(process.env.NODE_ENV === "production"),
     UPLOAD_MAX_BYTES: z.coerce
       .number()
       .int()

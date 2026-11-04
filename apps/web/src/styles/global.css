@@ -2085,6 +2085,50 @@ dl.kv dd {
   animation: pop-in 0.2s var(--ease) both;
 }
 
+/* Generic modal shell added for create/edit/decision forms. */
+.modal-lg {
+  width: min(760px, calc(100% - 28px));
+}
+.modal-wide {
+  width: min(980px, calc(100% - 28px));
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.modal-head .eyebrow {
+  margin: 0 0 2px;
+}
+.modal-head h3 {
+  margin: 0;
+}
+.modal-head .icon-btn {
+  flex: none;
+}
+.modal-body {
+  margin-top: 16px;
+}
+.modal-body .form {
+  margin-top: 0;
+}
+.modal-footer {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 620px) {
+  .modal-head {
+    gap: 8px;
+  }
+  .modal-footer {
+    flex-direction: column-reverse;
+  }
+  .modal-footer button {
+    width: 100%;
+  }
+}
 /* ── Placeholders ─────────────────────────────────────────────────────── */
 .skeleton {
   display: block;

@@ -1,16 +1,57 @@
 import type { ErrorHandler } from "hono";
 import { ApiError } from "../utils/api-error";
+import {
+  isCheckViolation,
+  isExclusionViolation,
+  isForeignKeyViolation,
+  isUniqueViolation,
+  pgCode,
+} from "../utils/db-error";
+import { log } from "../utils/logger";
 import { fail } from "../utils/response";
+
+/**
+ * Turn database failures into the same structured envelope as domain errors.
+ *
+ * Application code validates first, but two concurrent requests can still race a
+ * unique constraint, a check can fire on a hand-built row, and an exclusion can
+ * reject an overlapping booking. Those are client-visible conflicts, not 500s.
+ */
+function databaseError(err: unknown): ApiError | null {
+  if (isUniqueViolation(err))
+    return new ApiError("CONFLICT", "A record with these details already exists.");
+  if (isCheckViolation(err))
+    return new ApiError("VALIDATION_ERROR", "A value in this request is not allowed.");
+  if (isForeignKeyViolation(err))
+    return new ApiError("CONFLICT", "This record is still referenced by other data.");
+  if (isExclusionViolation(err))
+    return new ApiError("RESOURCE_CONFLICT", "That booking overlaps an existing reservation.");
+
+  const code = pgCode(err);
+  if (code === "22P02" || code === "22007" || code === "22008")
+    return new ApiError("VALIDATION_ERROR", "Invalid identifier or date format.");
+  if (code === "40001" || code === "40P01")
+    return new ApiError("CONFLICT", "The record changed while you were working. Please retry.");
+  if (code === "53300" || code === "08003" || code === "08006")
+    return new ApiError(
+      "DATABASE_UNAVAILABLE",
+      "The database is briefly unavailable. Retry shortly.",
+    );
+  return null;
+}
 
 export const errorHandler: ErrorHandler = (err, c) => {
   if (err instanceof ApiError) return fail(c, err);
-  const code =
-    typeof err === "object" && err !== null && "code" in err
-      ? String((err as { code?: unknown }).code)
-      : "";
-  if (code === "22P02" || code === "22007" || code === "22008") {
-    return fail(c, new ApiError("VALIDATION_ERROR", "Invalid identifier or date format."));
-  }
-  console.error(`[${c.get("requestId") ?? "no-request-id"}]`, err);
+
+  const dbError = databaseError(err);
+  if (dbError) return fail(c, dbError);
+
+  log.error("request_failed", {
+    requestId: c.get("requestId") ?? null,
+    method: c.req.method,
+    path: c.req.path,
+    error: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? err.stack : undefined,
+  });
   return fail(c, new ApiError("INTERNAL_ERROR", "An unexpected error occurred."));
 };

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ConfirmDialog, Loading, useAction } from "../components/feedback";
+import { ConfirmDialog, FormDialog, Loading, useAction } from "../components/feedback";
 import { Card, Empty, ErrorNote, Field, formatWhen } from "../components/ui";
 import { api, errorMessage } from "../lib/api";
 import type { EventRow } from "../lib/types";
@@ -42,6 +42,7 @@ export function AnnouncementsPanel({
     push: true,
   });
   const [revoke, setRevoke] = useState<Row | null>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -88,7 +89,10 @@ export function AnnouncementsPanel({
           : "Published. Nobody is registered yet, so it will be waiting when they are.";
       })
       .then(async (ok) => {
-        if (ok) await load();
+        if (ok) {
+          setComposeOpen(false);
+          await load();
+        }
       });
   }
 
@@ -99,64 +103,82 @@ export function AnnouncementsPanel({
       <ErrorNote message={error} />
 
       {canManage && (
-        <Card title="Tell participants something">
-          <div className="grid-2">
-            <Field label="Title">
-              <input
-                value={form.title}
-                maxLength={120}
-                placeholder="Venue changed to Seminar Hall 2"
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-              />
-            </Field>
-            <Field label="Who should see it">
-              <select
-                value={form.audience}
-                onChange={(e) => setForm({ ...form, audience: e.target.value as Row["audience"] })}
-              >
-                <option value="REGISTERED">Registered participants only</option>
-                <option value="ALL_VISIBLE">Everyone who can see this event</option>
-              </select>
-            </Field>
-          </div>
-          <Field label="Message">
-            <textarea
-              rows={3}
-              value={form.body}
-              maxLength={2000}
-              placeholder="Please bring your college ID to the new venue. Reporting time is unchanged."
-              onChange={(e) => setForm({ ...form, body: e.target.value })}
-            />
-          </Field>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={form.isPinned}
-              onChange={(e) => setForm({ ...form, isPinned: e.target.checked })}
-            />
-            Pin to the top of the event
-          </label>
-          {form.audience === "REGISTERED" && (
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={form.push}
-                onChange={(e) => setForm({ ...form, push: e.target.checked })}
-              />
-              Also notify registered participants (email and app notification)
-            </label>
-          )}
-          <div className="row" style={{ marginTop: 10 }}>
-            <button type="button" disabled={action.busy} onClick={publish}>
-              Publish announcement
+        <Card
+          title="Announcements"
+          subtitle="Participants read these in the app; the inbox is the source of truth."
+          actions={
+            <button type="button" onClick={() => setComposeOpen(true)}>
+              New announcement
             </button>
-          </div>
-          <p className="meta">
-            Participants read these in the app. The announcement inbox is the source of truth, so
-            nobody misses a message because a notification was dismissed.
+          }
+        >
+          <p className="meta" style={{ margin: 0 }}>
+            Write once for everyone registered, or for everyone who can see the event. Pinned
+            announcements stay at the top of the app.
           </p>
         </Card>
       )}
+
+      <FormDialog
+        open={composeOpen}
+        title="New announcement"
+        description="Published immediately. Recipients also get an in-app notification when enabled."
+        submitLabel="Publish announcement"
+        size="lg"
+        busy={action.busy}
+        onClose={() => setComposeOpen(false)}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void publish();
+        }}
+      >
+        <div className="grid-2">
+          <Field label="Title">
+            <input
+              value={form.title}
+              maxLength={120}
+              placeholder="Venue changed to Seminar Hall 2"
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+            />
+          </Field>
+          <Field label="Who should see it">
+            <select
+              value={form.audience}
+              onChange={(e) => setForm({ ...form, audience: e.target.value as Row["audience"] })}
+            >
+              <option value="REGISTERED">Registered participants only</option>
+              <option value="ALL_VISIBLE">Everyone who can see this event</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Message">
+          <textarea
+            rows={4}
+            value={form.body}
+            maxLength={2000}
+            placeholder="Please bring your college ID to the new venue. Reporting time is unchanged."
+            onChange={(e) => setForm({ ...form, body: e.target.value })}
+          />
+        </Field>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.isPinned}
+            onChange={(e) => setForm({ ...form, isPinned: e.target.checked })}
+          />
+          Pin to the top of the event
+        </label>
+        {form.audience === "REGISTERED" && (
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.push}
+              onChange={(e) => setForm({ ...form, push: e.target.checked })}
+            />
+            Also notify registered participants (email and app notification)
+          </label>
+        )}
+      </FormDialog>
 
       <Card title={`Published · ${total}${more ? "+" : ""}`}>
         {items.length === 0 ? (

@@ -4,6 +4,7 @@ import {
   events,
   approvalActions,
   approvalRequests,
+  idempotencyKeys,
   jobRuns,
   notificationOutbox,
   resourceReservations,
@@ -155,6 +156,7 @@ export async function pruneOperationalTables(): Promise<{
   outbox: number;
   rateLimits: number;
   qrNonces: number;
+  idempotencyKeys: number;
 }> {
   const { db } = getDb();
   const cutoff = new Date(Date.now() - 30 * 86_400_000);
@@ -178,10 +180,15 @@ export async function pruneOperationalTables(): Promise<{
     .delete(qrNonces)
     .where(lt(qrNonces.expiresAt, nonceCutoff))
     .returning({ nonceHash: qrNonces.nonceHash });
+  const deletedIdempotency = await db
+    .delete(idempotencyKeys)
+    .where(lt(idempotencyKeys.expiresAt, new Date()))
+    .returning({ key: idempotencyKeys.key });
   return {
     outbox: deletedOutbox.length,
     rateLimits: deletedBuckets.length,
     qrNonces: deletedNonces.length,
+    idempotencyKeys: deletedIdempotency.length,
   };
 }
 

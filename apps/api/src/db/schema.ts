@@ -176,6 +176,8 @@ export const users = pgTable(
     emailVerifiedAt: tz("email_verified_at"),
     fullName: text("full_name").notNull(),
     phone: text("phone"),
+    phoneVerifiedAt: tz("phone_verified_at"),
+    consentAcceptedAt: tz("consent_accepted_at"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     lastLoginAt: tz("last_login_at"),
@@ -1121,27 +1123,6 @@ export const notifications = pgTable(
   (t) => [index("notifications_user_idx").on(t.userId, t.createdAt)],
 );
 
-export const chatMessages = pgTable(
-  "chat_messages",
-  {
-    id: id(),
-    eventId: uuid("event_id")
-      .notNull()
-      .references(() => events.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id),
-    body: text("body").notNull(),
-    createdAt: createdAt(),
-    deletedAt: tz("deleted_at"),
-    deletedBy: uuid("deleted_by").references(() => users.id),
-  },
-  (t) => [
-    index("chat_messages_event_idx").on(t.eventId, t.createdAt),
-    check("chat_messages_body_length", sql`length(${t.body}) between 1 and 2000`),
-  ],
-);
-
 export const auditLogs = pgTable(
   "audit_logs",
   {
@@ -1185,11 +1166,17 @@ export const idempotencyKeys = pgTable(
     key: text("key").notNull(),
     scope: text("scope").notNull(),
     requestHash: text("request_hash").notNull(),
-    responseStatus: integer("response_status").notNull(),
-    responseBody: jsonb("response_body").notNull(),
+    /** Null while the original request is still running. */
+    responseStatus: integer("response_status"),
+    responseBody: jsonb("response_body"),
+    completed: boolean("completed").notNull().default(false),
+    expiresAt: tz("expires_at").notNull().default(sql`now() + interval '24 hours'`),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.key, t.scope] })],
+  (t) => [
+    primaryKey({ columns: [t.key, t.scope] }),
+    index("idempotency_keys_expiry_idx").on(t.expiresAt),
+  ],
 );
 
 export const outboxStatus = pgEnum("outbox_status", ["PENDING", "SENT", "FAILED", "SKIPPED"]);

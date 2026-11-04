@@ -1,10 +1,249 @@
 import { GLOBAL_ROLES, GLOBAL_ROLE_LABELS } from "@campusops/shared/ui";
 import { useCallback, useEffect, useState } from "react";
-import { ConfirmDialog, Pager, useAction, useToast } from "../components/feedback";
+import { ConfirmDialog, FormDialog, Pager, useAction, useToast } from "../components/feedback";
 import { Card, Empty, Field, SkeletonRows, formatWhen } from "../components/ui";
 import { type Page, api, errorMessage, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
 import { useSession } from "../lib/session";
+
+type SetupData = {
+  counts: {
+    departments: number;
+    programs: number;
+    clubs: number;
+    events: number;
+    staff: number;
+    students: number;
+  };
+  steps: Array<{ id: string; label: string; done: boolean; detail: string; href: string }>;
+  complete: boolean;
+  completedSteps: number;
+  totalSteps: number;
+};
+
+function SetupSection({ onNavigate }: { onNavigate: (sub: Sub) => void }) {
+  const toast = useToast();
+  const [data, setData] = useState<SetupData | null>(null);
+  useEffect(() => {
+    api<SetupData>("/admin/setup")
+      .then(setData)
+      .catch((err) => toast.err(errorMessage(err)));
+  }, [toast]);
+
+  if (!data) return <SkeletonRows rows={3} />;
+  const percent = Math.round((data.completedSteps / data.totalSteps) * 100);
+  return (
+    <div className="stack">
+      <Card
+        title="Your college, set up"
+        subtitle="The order that avoids dead ends: structure, people, then events."
+      >
+        <div className="row between" style={{ marginBottom: 8 }}>
+          <span className="meta">
+            {data.completedSteps} of {data.totalSteps} complete
+          </span>
+          <strong style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>{percent}%</strong>
+        </div>
+        <div className="progress" aria-label={`Setup ${percent}% complete`}>
+          <span style={{ width: `${percent}%` }} />
+        </div>
+        <div className="stack" style={{ marginTop: 16, gap: 8 }}>
+          {data.steps.map((step, index) => (
+            <div
+              key={step.id}
+              className="row between"
+              style={{
+                gap: 12,
+                padding: "12px 14px",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius-sm)",
+                background: step.done ? "var(--good-soft)" : "var(--surface-2)",
+              }}
+            >
+              <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 99,
+                    display: "grid",
+                    placeItems: "center",
+                    flex: "none",
+                    background: step.done ? "var(--good)" : "var(--surface)",
+                    color: step.done ? "#fff" : "var(--muted)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  {step.done ? "✓" : index + 1}
+                </span>
+                <div>
+                  <strong>{step.label}</strong>
+                  <div className="meta">{step.detail}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={step.done ? "ghost tiny" : "tiny"}
+                onClick={() => {
+                  if (step.href.includes("admin")) onNavigate("departments");
+                  else location.hash = step.href.replace(/^#/, "");
+                }}
+              >
+                {step.done ? "Review" : "Open"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card title="Single-college deployment">
+        <p className="meta" style={{ margin: 0 }}>
+          CampusOps runs one institution per deployment. Departments, programmes, roles and the
+          academic calendar are yours alone; there is no cross-college tenancy to configure.
+        </p>
+        <div className="stats" style={{ marginTop: 14 }}>
+          <div>
+            <span className="stat-value">{data.counts.departments}</span>
+            <span className="stat-label">Departments</span>
+          </div>
+          <div>
+            <span className="stat-value">{data.counts.staff}</span>
+            <span className="stat-label">HODs & faculty</span>
+          </div>
+          <div>
+            <span className="stat-value">{data.counts.clubs}</span>
+            <span className="stat-label">Clubs</span>
+          </div>
+          <div>
+            <span className="stat-value">{data.counts.events}</span>
+            <span className="stat-label">Events</span>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+type AuditRow = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  eventId: string | null;
+  requestId: string | null;
+  createdAt: string;
+  actor: { fullName: string; email: string } | null;
+  before: unknown;
+  after: unknown;
+};
+
+function AuditSection() {
+  const toast = useToast();
+  const [rows, setRows] = useState<AuditRow[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [action, setAction] = useState("");
+  const [appliedAction, setAppliedAction] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const page = await api<Page<AuditRow>>(
+        `/admin/audit${query({ limit: PAGE_SIZE, offset, action: appliedAction })}`,
+      );
+      setRows(page.items);
+      setHasMore(Boolean(page.hasMore));
+    } catch (err) {
+      toast.err(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [offset, appliedAction, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <Card title="Who changed what" subtitle="Append-only. Redacted at write time.">
+      <form
+        className="row"
+        style={{ gap: 8, marginBottom: 12 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          setOffset(0);
+          setAppliedAction(action.trim());
+        }}
+      >
+        <Field label="Action">
+          <input
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+            placeholder="EVENT_PUBLISHED"
+          />
+        </Field>
+        <button type="submit" className="ghost">
+          Filter
+        </button>
+      </form>
+      {loading ? (
+        <SkeletonRows rows={6} />
+      ) : rows.length === 0 ? (
+        <Empty>No audit entries match this filter.</Empty>
+      ) : (
+        <>
+          <div className="scroll-x">
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Actor</th>
+                  <th>Action</th>
+                  <th>Entity</th>
+                  <th>Request</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="meta">{formatWhen(row.createdAt)}</td>
+                    <td>
+                      {row.actor ? (
+                        <>
+                          <div>{row.actor.fullName}</div>
+                          <div className="meta">{row.actor.email}</div>
+                        </>
+                      ) : (
+                        <span className="meta">System</span>
+                      )}
+                    </td>
+                    <td>
+                      <code>{row.action}</code>
+                    </td>
+                    <td className="meta">
+                      {row.entityType}
+                      {row.entityId ? ` · ${row.entityId.slice(0, 8)}` : ""}
+                    </td>
+                    <td className="meta">{row.requestId?.slice(0, 12) ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pager
+            offset={offset}
+            limit={PAGE_SIZE}
+            count={rows.length}
+            hasMore={hasMore}
+            onChange={setOffset}
+          />
+        </>
+      )}
+    </Card>
+  );
+}
 
 type UserRow = {
   id: string;
@@ -44,17 +283,19 @@ type Department = { id: string; code: string; name: string };
 
 const STATUSES = ["PENDING_EMAIL", "PENDING_VERIFICATION", "ACTIVE", "REJECTED", "SUSPENDED"];
 
-type Sub = "users" | "departments" | "jobs";
+type Sub = "setup" | "users" | "departments" | "audit" | "jobs";
 
 export function AdminPanel() {
-  const [sub, setSub] = useState<Sub>("users");
+  const [sub, setSub] = useState<Sub>("setup");
   return (
     <div className="stack">
       <div className="subtabs">
         {(
           [
+            ["setup", "Get started"],
             ["users", "Users & roles"],
             ["departments", "Departments"],
+            ["audit", "Audit trail"],
             ["jobs", "Maintenance"],
           ] as Array<[Sub, string]>
         ).map(([id, label]) => (
@@ -68,8 +309,10 @@ export function AdminPanel() {
           </button>
         ))}
       </div>
+      {sub === "setup" && <SetupSection onNavigate={setSub} />}
       {sub === "users" && <UsersSection />}
       {sub === "departments" && <DepartmentsSection />}
+      {sub === "audit" && <AuditSection />}
       {sub === "jobs" && <JobsSection />}
     </div>
   );
@@ -93,6 +336,7 @@ function UsersSection() {
     label: string;
   } | null>(null);
   const [showProvision, setShowProvision] = useState(false);
+  const [grantOpen, setGrantOpen] = useState(false);
   const [grant, setGrant] = useState({
     role: "FACULTY",
     scopeType: "DEPARTMENT",
@@ -164,7 +408,7 @@ function UsersSection() {
   async function grantRole(e: React.FormEvent) {
     e.preventDefault();
     if (!detail) return;
-    await action.run(async () => {
+    const ok = await action.run(async () => {
       await api(`/admin/users/${detail.user.id}/roles`, {
         role: grant.role,
         scopeType: grant.scopeType,
@@ -173,6 +417,10 @@ function UsersSection() {
       await refreshDetail(detail.user.id);
       return "Role granted.";
     });
+    if (ok) {
+      setGrantOpen(false);
+      setGrant({ role: "FACULTY", scopeType: "DEPARTMENT", departmentId: "" });
+    }
   }
 
   async function runConfirm(reason: string) {
@@ -204,69 +452,11 @@ function UsersSection() {
       <Card
         title="Users"
         actions={
-          <button type="button" onClick={() => setShowProvision((v) => !v)}>
-            {showProvision ? "Close" : "Provision staff"}
+          <button type="button" onClick={() => setShowProvision(true)}>
+            Provision staff
           </button>
         }
       >
-        {showProvision && (
-          <form className="form" onSubmit={provision}>
-            <div className="grid-2">
-              <Field label="Email">
-                <input
-                  type="email"
-                  required
-                  value={staff.email}
-                  onChange={(e) => setStaff({ ...staff, email: e.target.value })}
-                />
-              </Field>
-              <Field label="Full name">
-                <input
-                  required
-                  minLength={2}
-                  value={staff.fullName}
-                  onChange={(e) => setStaff({ ...staff, fullName: e.target.value })}
-                />
-              </Field>
-              <Field label="Designation">
-                <input
-                  required
-                  minLength={2}
-                  placeholder="Assistant Professor"
-                  value={staff.designation}
-                  onChange={(e) => setStaff({ ...staff, designation: e.target.value })}
-                />
-              </Field>
-              <Field label="Employee code (optional)">
-                <input
-                  value={staff.employeeCode}
-                  onChange={(e) => setStaff({ ...staff, employeeCode: e.target.value })}
-                />
-              </Field>
-              <Field label="Department (optional)">
-                <select
-                  value={staff.departmentId}
-                  onChange={(e) => setStaff({ ...staff, departmentId: e.target.value })}
-                >
-                  <option value="">None</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            <button type="submit" disabled={action.busy}>
-              {action.busy ? "Creating…" : "Create staff account"}
-            </button>
-            <p className="hint">
-              Staff accounts are created without a password or setup code. The account holder uses
-              Forgot password to request a code and set their own password.
-            </p>
-          </form>
-        )}
-
         <div className="toolbar">
           <Field label="Search">
             <input
@@ -350,9 +540,14 @@ function UsersSection() {
         <Card
           title={`Manage: ${detail.user.fullName}`}
           actions={
-            <button type="button" className="ghost" onClick={() => setDetail(null)}>
-              Close
-            </button>
+            <>
+              <button type="button" className="ghost" onClick={() => setGrantOpen(true)}>
+                Grant role
+              </button>
+              <button type="button" className="ghost" onClick={() => setDetail(null)}>
+                Close
+              </button>
+            </>
           }
         >
           <dl className="kv">
@@ -451,63 +646,6 @@ function UsersSection() {
             </div>
           )}
 
-          <form className="form" onSubmit={grantRole}>
-            <h3>Grant a role</h3>
-            <div className="grid-3">
-              <Field label="Role">
-                <select
-                  value={grant.role}
-                  onChange={(e) =>
-                    setGrant({
-                      ...grant,
-                      role: e.target.value,
-                      scopeType: e.target.value === "ADMIN" ? "GLOBAL" : grant.scopeType,
-                    })
-                  }
-                >
-                  {GLOBAL_ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {GLOBAL_ROLE_LABELS[r] ?? r}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Scope">
-                <select
-                  value={grant.scopeType}
-                  disabled={grant.role === "ADMIN"}
-                  onChange={(e) => setGrant({ ...grant, scopeType: e.target.value })}
-                >
-                  <option value="DEPARTMENT">One department</option>
-                  <option value="GLOBAL">Institution-wide</option>
-                </select>
-              </Field>
-              {grant.scopeType === "DEPARTMENT" && (
-                <Field label="Department">
-                  <select
-                    required
-                    value={grant.departmentId}
-                    onChange={(e) => setGrant({ ...grant, departmentId: e.target.value })}
-                  >
-                    <option value="">Choose…</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )}
-            </div>
-            <button type="submit" disabled={action.busy}>
-              Grant role
-            </button>
-            <p className="hint">
-              Admin is always institution-wide. The last active Admin cannot be revoked or
-              suspended.
-            </p>
-          </form>
-
           {detail.clubMemberships.length > 0 && (
             <>
               <h3>Club memberships</h3>
@@ -547,6 +685,118 @@ function UsersSection() {
         onCancel={() => setConfirm(null)}
         onConfirm={runConfirm}
       />
+
+      <FormDialog
+        open={showProvision}
+        title="Provision a staff account"
+        description="The account is created without a password. The holder uses Forgot password to set one."
+        submitLabel="Create staff account"
+        busy={action.busy}
+        onClose={() => setShowProvision(false)}
+        onSubmit={provision}
+      >
+        <div className="grid-2">
+          <Field label="Email">
+            <input
+              type="email"
+              required
+              value={staff.email}
+              onChange={(e) => setStaff({ ...staff, email: e.target.value })}
+            />
+          </Field>
+          <Field label="Full name">
+            <input
+              required
+              minLength={2}
+              value={staff.fullName}
+              onChange={(e) => setStaff({ ...staff, fullName: e.target.value })}
+            />
+          </Field>
+          <Field label="Designation">
+            <input
+              required
+              minLength={2}
+              placeholder="Assistant Professor"
+              value={staff.designation}
+              onChange={(e) => setStaff({ ...staff, designation: e.target.value })}
+            />
+          </Field>
+          <Field label="Employee code (optional)">
+            <input
+              value={staff.employeeCode}
+              onChange={(e) => setStaff({ ...staff, employeeCode: e.target.value })}
+            />
+          </Field>
+          <Field label="Department (optional)">
+            <select
+              value={staff.departmentId}
+              onChange={(e) => setStaff({ ...staff, departmentId: e.target.value })}
+            >
+              <option value="">None</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </FormDialog>
+
+      <FormDialog
+        open={grantOpen}
+        title="Grant a role"
+        description="Admin is always institution-wide. The last active Admin cannot be revoked or suspended."
+        submitLabel="Grant role"
+        busy={action.busy}
+        onClose={() => setGrantOpen(false)}
+        onSubmit={grantRole}
+      >
+        <Field label="Role">
+          <select
+            value={grant.role}
+            onChange={(e) =>
+              setGrant({
+                ...grant,
+                role: e.target.value,
+                scopeType: e.target.value === "ADMIN" ? "GLOBAL" : grant.scopeType,
+              })
+            }
+          >
+            {GLOBAL_ROLES.map((r) => (
+              <option key={r} value={r}>
+                {GLOBAL_ROLE_LABELS[r] ?? r}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Scope">
+          <select
+            value={grant.scopeType}
+            disabled={grant.role === "ADMIN"}
+            onChange={(e) => setGrant({ ...grant, scopeType: e.target.value })}
+          >
+            <option value="DEPARTMENT">One department</option>
+            <option value="GLOBAL">Institution-wide</option>
+          </select>
+        </Field>
+        {grant.scopeType === "DEPARTMENT" && (
+          <Field label="Department">
+            <select
+              required
+              value={grant.departmentId}
+              onChange={(e) => setGrant({ ...grant, departmentId: e.target.value })}
+            >
+              <option value="">Choose…</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+      </FormDialog>
     </>
   );
 }
@@ -559,6 +809,8 @@ function DepartmentsSection() {
   const [programName, setProgramName] = useState("");
   const [form, setForm] = useState({ code: "", name: "" });
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [deptOpen, setDeptOpen] = useState(false);
+  const [programOpen, setProgramOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -582,6 +834,7 @@ function DepartmentsSection() {
     await action.run(async () => {
       await api("/departments", form);
       setForm({ code: "", name: "" });
+      setDeptOpen(false);
       await load();
       return "Department created.";
     });
@@ -592,6 +845,7 @@ function DepartmentsSection() {
     await action.run(async () => {
       await api("/departments/programs", { name: programName.trim() });
       setProgramName("");
+      setProgramOpen(false);
       await load();
       return "Programme added.";
     });
@@ -610,7 +864,14 @@ function DepartmentsSection() {
 
   return (
     <>
-      <Card title="Departments">
+      <Card
+        title="Departments"
+        actions={
+          <button type="button" onClick={() => setDeptOpen(true)}>
+            New department
+          </button>
+        }
+      >
         <p className="meta">
           Departments scope role assignments, clubs, resources and student verification. Codes are
           permanent because existing records reference them.
@@ -651,7 +912,14 @@ function DepartmentsSection() {
         )}
       </Card>
 
-      <Card title="Student programmes">
+      <Card
+        title="Student programmes"
+        actions={
+          <button type="button" className="ghost" onClick={() => setProgramOpen(true)}>
+            Add programme
+          </button>
+        }
+      >
         <p className="meta">Add the programme options students can select during registration.</p>
         {programs.length ? (
           <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
@@ -664,74 +932,80 @@ function DepartmentsSection() {
         ) : (
           <Empty>No programmes added yet.</Empty>
         )}
-        <form className="form" onSubmit={createProgram}>
-          <Field label="Programme name">
+      </Card>
+
+      <FormDialog
+        open={deptOpen}
+        title="New department"
+        description="Codes are permanent because existing records reference them."
+        submitLabel="Create department"
+        busy={action.busy}
+        onClose={() => setDeptOpen(false)}
+        onSubmit={create}
+      >
+        <div className="grid-2">
+          <Field label="Code">
             <input
               required
               minLength={2}
-              maxLength={120}
-              value={programName}
-              onChange={(e) => setProgramName(e.target.value)}
-              placeholder="Bachelor of Technology"
+              maxLength={20}
+              placeholder="CSE"
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
             />
           </Field>
-          <button type="submit" disabled={action.busy}>
-            Add programme
-          </button>
-        </form>
-      </Card>
+          <Field label="Name">
+            <input
+              required
+              minLength={2}
+              placeholder="Computer Science and Engineering"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </Field>
+        </div>
+      </FormDialog>
 
-      <Card title="Create a department">
-        <form className="form" onSubmit={create}>
-          <div className="grid-2">
-            <Field label="Code">
-              <input
-                required
-                minLength={2}
-                maxLength={20}
-                placeholder="CSE"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })}
-              />
-            </Field>
-            <Field label="Name">
-              <input
-                required
-                minLength={2}
-                placeholder="Computer Science and Engineering"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </Field>
-          </div>
-          <button type="submit" disabled={action.busy}>
-            Create department
-          </button>
-        </form>
-      </Card>
+      <FormDialog
+        open={programOpen}
+        title="Add a programme"
+        description="These become the options a student chooses during registration."
+        submitLabel="Add programme"
+        busy={action.busy}
+        onClose={() => setProgramOpen(false)}
+        onSubmit={createProgram}
+      >
+        <Field label="Programme name">
+          <input
+            required
+            minLength={2}
+            maxLength={120}
+            value={programName}
+            onChange={(e) => setProgramName(e.target.value)}
+            placeholder="Bachelor of Technology"
+          />
+        </Field>
+      </FormDialog>
 
-      {renaming && (
-        <Card title="Rename department">
-          <form className="form" onSubmit={rename}>
-            <Field label="Name">
-              <input
-                required
-                minLength={2}
-                value={renaming.name}
-                onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
-              />
-            </Field>
-            <div className="row" style={{ gap: "0.5rem" }}>
-              <button type="submit" disabled={action.busy}>
-                Save
-              </button>
-              <button type="button" className="ghost" onClick={() => setRenaming(null)}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        </Card>
-      )}
+      <FormDialog
+        open={Boolean(renaming)}
+        title="Rename department"
+        submitLabel="Save name"
+        busy={action.busy}
+        onClose={() => setRenaming(null)}
+        onSubmit={rename}
+      >
+        <Field label="Name">
+          <input
+            required
+            minLength={2}
+            value={renaming?.name ?? ""}
+            onChange={(e) =>
+              setRenaming((current) => (current ? { ...current, name: e.target.value } : null))
+            }
+          />
+        </Field>
+      </FormDialog>
     </>
   );
 }

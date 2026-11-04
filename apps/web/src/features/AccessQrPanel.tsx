@@ -12,7 +12,14 @@ import {
   qrTypeNeedsMaxUses,
 } from "@campusops/shared/ui";
 import { useCallback, useEffect, useState } from "react";
-import { ConfirmDialog, Loading, Pager, useAction, useToast } from "../components/feedback";
+import {
+  ConfirmDialog,
+  FormDialog,
+  Loading,
+  Pager,
+  useAction,
+  useToast,
+} from "../components/feedback";
 import {
   Empty,
   ErrorNote,
@@ -146,6 +153,7 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(() => blankForm(event));
   const [editing, setEditing] = useState<Checkpoint | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Checkpoint | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<PassHolder | null>(null);
   const [view, setView] = useState<"qrs" | "passes" | "log">("qrs");
@@ -190,6 +198,7 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
     if (ok) {
       setEditing(null);
       setForm(blankForm(event));
+      setFormOpen(false);
       await loadCheckpoints();
     }
   }
@@ -245,10 +254,24 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
 
       {view === "qrs" && (
         <>
-          <p className="meta">
-            Name each QR whatever you need. Choose what one scan does and when it is accepted. The
-            on/off switch works in every mode, so you can pause a QR immediately.
-          </p>
+          <div className="row between" style={{ marginBottom: 12 }}>
+            <p className="meta" style={{ margin: 0 }}>
+              Name each QR whatever you need. Choose what one scan does and when it is accepted. The
+              on/off switch works in every mode, so you can pause a QR immediately.
+            </p>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(null);
+                  setForm(blankForm(event));
+                  setFormOpen(true);
+                }}
+              >
+                New QR
+              </button>
+            )}
+          </div>
           {!checkpoints ? (
             <Loading label="Loading QR rules…" />
           ) : checkpoints.length === 0 ? (
@@ -303,6 +326,7 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
                               onClick={() => {
                                 setEditing(cp);
                                 setForm(editForm(cp, event));
+                                setFormOpen(true);
                               }}
                             >
                               Edit
@@ -324,136 +348,7 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
             </div>
           )}
 
-          {canManage ? (
-            <div className="stack sub-form">
-              <h3>{editing ? `Edit ${editing.name}` : "Define a QR"}</h3>
-              <div className="grid-2">
-                <Field
-                  label="QR name"
-                  hint="Free text, up to 80 characters. This is what participants see."
-                >
-                  <input
-                    value={form.name}
-                    maxLength={80}
-                    placeholder="e.g. Attendance, Lab 3, abc"
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  />
-                </Field>
-                <Field
-                  label="QR type"
-                  hint={
-                    typeLocked
-                      ? "This QR has recorded scans, so its type is fixed. Create another QR for a different type."
-                      : QR_TYPE_HINTS[form.qrType]
-                  }
-                >
-                  <select
-                    value={form.qrType}
-                    disabled={typeLocked}
-                    onChange={(e) => setForm({ ...form, qrType: e.target.value as QrType })}
-                  >
-                    {QR_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {QR_TYPE_LABELS[t]}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {qrTypeNeedsMaxUses(form.qrType) && (
-                  <Field
-                    label="Valid uses per participant"
-                    hint="Counted across this event. You can raise it later, but not below what someone has already used."
-                  >
-                    <input
-                      type="number"
-                      min={1}
-                      max={1000}
-                      value={form.maxUses}
-                      onChange={(e) => setForm({ ...form, maxUses: Number(e.target.value) })}
-                    />
-                  </Field>
-                )}
-                <Field label="Validity" hint={QR_VALIDITY_HINTS[form.validityMode]}>
-                  <select
-                    value={form.validityMode}
-                    onChange={(e) =>
-                      setForm({ ...form, validityMode: e.target.value as QrValidityMode })
-                    }
-                  >
-                    {QR_VALIDITY_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {QR_VALIDITY_LABELS[m]}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {form.validityMode === "WINDOW" && (
-                  <>
-                    <Field label="Valid from">
-                      <input
-                        type="datetime-local"
-                        value={form.validFrom}
-                        onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
-                      />
-                    </Field>
-                    <Field label="Valid until">
-                      <input
-                        type="datetime-local"
-                        value={form.validUntil}
-                        onChange={(e) => setForm({ ...form, validUntil: e.target.value })}
-                      />
-                    </Field>
-                  </>
-                )}
-                {form.validityMode === "DATE" && (
-                  <Field label="Valid on" hint="The whole calendar day in the campus timezone.">
-                    <input
-                      type="date"
-                      value={form.validOn}
-                      onChange={(e) => setForm({ ...form, validOn: e.target.value })}
-                    />
-                  </Field>
-                )}
-              </div>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.requiresIdCheck}
-                  onChange={(e) => setForm({ ...form, requiresIdCheck: e.target.checked })}
-                />
-                Scanner must confirm the person matches their college ID
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.isActive}
-                  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-                />
-                QR is switched on
-              </label>
-              <div className="row">
-                <button
-                  type="button"
-                  disabled={action.busy || form.name.trim().length === 0}
-                  onClick={() => void submit()}
-                >
-                  {editing ? "Save QR rule" : "Add QR"}
-                </button>
-                {editing && (
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => {
-                      setEditing(null);
-                      setForm(blankForm(event));
-                    }}
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : (
+          {!canManage && (
             <p className="meta">
               Only this event&apos;s coordinators can change its QR rules. You can still see how
               they are configured and used.
@@ -461,6 +356,128 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
           )}
         </>
       )}
+
+      <FormDialog
+        open={formOpen}
+        title={editing ? `Edit ${editing.name}` : "Define a QR"}
+        description="One QR, one purpose. The on/off switch works in every mode."
+        submitLabel={editing ? "Save QR rule" : "Add QR"}
+        size="lg"
+        busy={action.busy}
+        onClose={() => {
+          setFormOpen(false);
+          setEditing(null);
+          setForm(blankForm(event));
+        }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (form.name.trim().length === 0) return;
+          void submit();
+        }}
+      >
+        <div className="grid-2">
+          <Field
+            label="QR name"
+            hint="Free text, up to 80 characters. This is what participants see."
+          >
+            <input
+              value={form.name}
+              maxLength={80}
+              placeholder="e.g. Attendance, Lab 3, abc"
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="QR type"
+            hint={
+              typeLocked
+                ? "This QR has recorded scans, so its type is fixed. Create another QR for a different type."
+                : QR_TYPE_HINTS[form.qrType]
+            }
+          >
+            <select
+              value={form.qrType}
+              disabled={typeLocked}
+              onChange={(e) => setForm({ ...form, qrType: e.target.value as QrType })}
+            >
+              {QR_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {QR_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {qrTypeNeedsMaxUses(form.qrType) && (
+            <Field
+              label="Valid uses per participant"
+              hint="Counted across this event. You can raise it later, but not below what someone has already used."
+            >
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={form.maxUses}
+                onChange={(e) => setForm({ ...form, maxUses: Number(e.target.value) })}
+              />
+            </Field>
+          )}
+          <Field label="Validity" hint={QR_VALIDITY_HINTS[form.validityMode]}>
+            <select
+              value={form.validityMode}
+              onChange={(e) => setForm({ ...form, validityMode: e.target.value as QrValidityMode })}
+            >
+              {QR_VALIDITY_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {QR_VALIDITY_LABELS[m]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {form.validityMode === "WINDOW" && (
+            <>
+              <Field label="Valid from">
+                <input
+                  type="datetime-local"
+                  value={form.validFrom}
+                  onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
+                />
+              </Field>
+              <Field label="Valid until">
+                <input
+                  type="datetime-local"
+                  value={form.validUntil}
+                  onChange={(e) => setForm({ ...form, validUntil: e.target.value })}
+                />
+              </Field>
+            </>
+          )}
+          {form.validityMode === "DATE" && (
+            <Field label="Valid on" hint="The whole calendar day in the campus timezone.">
+              <input
+                type="date"
+                value={form.validOn}
+                onChange={(e) => setForm({ ...form, validOn: e.target.value })}
+              />
+            </Field>
+          )}
+        </div>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.requiresIdCheck}
+            onChange={(e) => setForm({ ...form, requiresIdCheck: e.target.checked })}
+          />
+          Scanner must confirm the person matches their college ID
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+          />
+          QR is switched on
+        </label>
+      </FormDialog>
 
       {view === "passes" && (
         <>

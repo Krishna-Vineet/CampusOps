@@ -2,6 +2,7 @@ import {
   type AccessQr,
   type IdentityCheck,
   decideAccess,
+  effectiveEventStatus,
   qrTypeLimit,
   standingFor,
 } from "@campusops/shared";
@@ -642,12 +643,10 @@ export async function scan(
   // Schedule rules are judged at capture time; an event that has since completed
   // was still live when the participant walked in.
   const decisionNow = offline ? offline.capturedAt : new Date();
+  const statusNow = effectiveEventStatus(event.status, event.startsAt, event.endsAt, decisionNow);
+  // Offline scans captured before the event ended are judged as they were then.
   const eventStatusForDecision =
-    offline &&
-    event.status === "COMPLETED" &&
-    offline.capturedAt <= (event.completedAt ?? new Date())
-      ? "LIVE"
-      : event.status;
+    offline && statusNow === "COMPLETED" && offline.capturedAt < event.endsAt ? "LIVE" : statusNow;
 
   // A forged or expired code never reaches the pass lookup, but it is still
   // logged so a coordinator can see repeated attempts at their counter.

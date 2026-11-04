@@ -42,6 +42,7 @@ export async function sendAuthEmail(
         subject: input.subject,
         textContent: text,
       }),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok)
       throw new Error(
@@ -54,6 +55,7 @@ export async function sendAuthEmail(
     method: "POST",
     headers: { authorization: `Bearer ${key ?? ""}`, "content-type": "application/json" },
     body: JSON.stringify({ from: env.EMAIL_FROM, to: [input.to], subject: input.subject, text }),
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok)
     throw new Error(

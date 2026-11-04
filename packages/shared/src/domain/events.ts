@@ -34,6 +34,30 @@ export function isDiscoverable(status: EventStatus): boolean {
   return DISCOVERABLE_STATUSES.includes(status);
 }
 
+/**
+ * The status an event has *now*, independent of the maintenance job.
+ *
+ * A free host cannot run a minute-by-minute cron, and a gate cannot wait for one.
+ * PUBLISHED becomes LIVE at startsAt and PUBLISHED/LIVE becomes COMPLETED at
+ * endsAt for decision-making, while the stored status catches up in the
+ * background. The database row remains the record; this is only the clock.
+ */
+export function effectiveEventStatus(
+  status: EventStatus | string,
+  startsAt: string | Date,
+  endsAt: string | Date,
+  at: Date = new Date(),
+): EventStatus | string {
+  const now = at.getTime();
+  const start = new Date(startsAt).getTime();
+  const end = new Date(endsAt).getTime();
+  if (status === "CANCELLED" || status === "COMPLETED") return status;
+  if ((status === "PUBLISHED" || status === "LIVE") && Number.isFinite(end) && end <= now)
+    return "COMPLETED";
+  if (status === "PUBLISHED" && Number.isFinite(start) && start <= now) return "LIVE";
+  return status;
+}
+
 /** Editing rules: a submitted event is frozen; changes require a new revision. */
 export function canEditEvent(status: EventStatus): boolean {
   return status === "DRAFT";

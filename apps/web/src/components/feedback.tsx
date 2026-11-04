@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -211,6 +212,129 @@ export function ConfirmDialog({
         </button>
       </div>
     </dialog>
+  );
+}
+
+type ModalSize = "md" | "lg" | "wide";
+
+/**
+ * A real modal surface for transient work: create, edit, decide, invite.
+ * Native <dialog> provides focus trapping, inert background and Escape, so a
+ * panel never grows a second form in the page flow when a button is pressed.
+ */
+export function Modal({
+  open,
+  title,
+  description,
+  size = "md",
+  busy = false,
+  onClose,
+  footer,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  description?: ReactNode;
+  size?: ModalSize | undefined;
+  busy?: boolean | undefined;
+  onClose: () => void;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (open) {
+      if (!el.open) el.showModal();
+    } else if (el.open) {
+      el.close();
+    }
+  }, [open]);
+
+  return (
+    <dialog
+      ref={ref}
+      className={`modal modal-${size}`}
+      aria-label={title}
+      onCancel={(e) => {
+        e.preventDefault();
+        if (!busy) onClose();
+      }}
+      onClose={() => {
+        if (open && !busy) onClose();
+      }}
+    >
+      <div className="modal-head">
+        <div>
+          <p className="eyebrow">CampusOps</p>
+          <h3>{title}</h3>
+        </div>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="Close dialog"
+          disabled={busy}
+          onClick={onClose}
+        >
+          <Icon name="x" size={15} />
+        </button>
+      </div>
+      {description ? <p className="meta">{description}</p> : null}
+      <div className="modal-body">{children}</div>
+      {footer ? <div className="row end modal-footer">{footer}</div> : null}
+    </dialog>
+  );
+}
+
+/** Modal whose body is a form; the footer submit button drives that form. */
+export function FormDialog({
+  open,
+  title,
+  description,
+  size = "md",
+  submitLabel = "Save",
+  busy = false,
+  danger = false,
+  onClose,
+  onSubmit,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  description?: ReactNode;
+  size?: ModalSize | undefined;
+  submitLabel?: string | undefined;
+  busy?: boolean | undefined;
+  danger?: boolean | undefined;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  children: ReactNode;
+}) {
+  const formId = useId();
+  return (
+    <Modal
+      open={open}
+      title={title}
+      description={description}
+      size={size}
+      busy={busy}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="ghost" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form={formId} className={danger ? "danger" : ""} disabled={busy}>
+            {busy ? "Working…" : submitLabel}
+          </button>
+        </>
+      }
+    >
+      <form id={formId} className="form" onSubmit={onSubmit}>
+        {children}
+      </form>
+    </Modal>
   );
 }
 

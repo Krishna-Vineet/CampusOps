@@ -2,10 +2,11 @@
 
 Campus event operations for frequent short events: plan → permissions → resources → publish → register → verify → issues.
 
-**Status:** Phase 6 — production-grade management website UI, a complete developer guide, and a full critic audit with fixes. Phases 1–5 (backend, website, coordinator-defined access QRs, connected mobile app) remain in place. Awaiting your review.
+**Status:** production hardening. The full flow — permissions, resources, approvals, publication, registration, signed passes, scanning, complaints and reports — runs end to end on one connected codebase. The current round hardens the API (idempotency, maintenance, structured logs, proxy-aware rate limits), turns every create/edit form into a dialog, and adds search, audit, setup guidance and export/calendar links. 360 API tests pass.
 
 **Audience split:** the website is management-only. Students (college and outside) use the mobile app; the event’s own coordinators and faculty scan with their normal login; there is no student web portal. An account with no staff role and no club membership is told to use the app.
 
+- **Production review and next steps:** [`docs/product-review.md`](docs/product-review.md)
 - **Phase 6 report:** [`docs/phase6-report.md`](docs/phase6-report.md)
 - **Phase 6 critic audit:** [`docs/phase6-audit.md`](docs/phase6-audit.md)
 - Phase 6 verification run: [`docs/phase6-verification.log`](docs/phase6-verification.log)
@@ -47,15 +48,14 @@ cache in `/tmp/bun-cache`.
 
 ```powershell
 bun install
-Copy-Item .env.api.example .env.api
-Copy-Item .env.web.example .env.web
-Copy-Item .env.mobile.example .env.mobile
-# Put database credentials and API secrets only in .env.api.
-# Set the same API port in .env.api PORT, .env.web API_PORT, and .env.mobile URL.
+cp .env.example .env.local
+# Fill DATABASE_URL, JWT_ACCESS_SECRET and REFRESH_TOKEN_PEPPER.
+# .env.local is loaded by both the API (Bun) and the web dev server (Vite),
+# so one file is enough for local work.
 bun run db:migrate
-bun run dev:api
-bun run dev:web
-bun run dev:mobile
+bun run db:seed        # optional demo data
+bun run dev:api        # http://localhost:8787
+bun run dev:web        # http://localhost:5173, proxies /api to the API
 ```
 
 The web dev server proxies `/api` to the API. Browser code uses relative URLs only, so the same build works locally and behind one origin in production.
@@ -73,7 +73,8 @@ Local app env files are separate: `.env.api` holds server secrets, `.env.web` ho
 | Storage | `STORAGE_MODE`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` | Private S3-compatible storage for ID proof/photos; event report/export purposes unlock with their phases. |
 | Approvals & resources | `RESOURCE_HOLD_TTL_HOURS` | How long an undecided resource hold survives (default 72). |
 | Notifications | `NOTIFICATIONS_ENABLED`, `OUTBOX_BATCH_SIZE`, `OUTBOX_MAX_ATTEMPTS` | Transactional outbox; dispatched after commit with backoff. |
-| Jobs | `JOBS_ENABLED`, `JOB_INTERVAL_SECONDS` | In-process timer. Leave **false** on free/serverless hosts; use cron or the admin endpoint. |
+| Runtime | `TRUST_PROXY_HEADERS`, `TRUSTED_PROXY_HOPS`, `LOG_JSON` | Trust forwarding headers only behind a proxy that strips client values; set the hop count to match. `LOG_JSON=true` for hosted log collectors. |
+| Jobs | `JOBS_ENABLED`, `JOB_INTERVAL_SECONDS`, `MAINTENANCE_ON_REQUEST`, `MAINTENANCE_INTERVAL_SECONDS`, `JOB_RUN_TOKEN` | The timer is optional. On a sleeping free host, due maintenance runs on the first admin read (`MAINTENANCE_ON_REQUEST=true`), or an external scheduler can POST `/api/v1/admin/jobs/maintenance` with `JOB_RUN_TOKEN`. |
 | Access QRs | `QR_HMAC_SECRET`, `QR_TOKEN_TTL_SECONDS` | Rotating signed pass tokens (15–300 s, default 60). |
 | Mobile | `EXPO_PUBLIC_API_URL`, `MOBILE_SCHEME` | Native builds need the absolute API origin; the browser preview uses a same-origin proxy. |
 
@@ -84,7 +85,7 @@ Local app env files are separate: `.env.api` holds server secrets, `.env.web` ho
 - `STORAGE_MODE=disabled` returns `503 STORAGE_DISABLED` for file operations; it does not silently fake uploads.
 - `STORAGE_MODE=s3` uses private buckets, short-lived signed upload/download URLs, server-side HEAD validation, and DB file references.
 - Seed accounts are fake. Demo-account login is disabled unless `SEED_DEMO_PASSWORD` is set locally.
-- Quiz-ranked admission (`QUIZ_TOP_N`, `QUIZ_FIRST_QUALIFIED`) is **refused** until quizzes exist in Phase 7 — it never silently degrades to first-come-first-served.
+- Quiz-ranked admission (`QUIZ_TOP_N`, `QUIZ_FIRST_QUALIFIED`) uses the event quiz and never silently degrades to first-come-first-served when no quiz is configured.
 
 ## Commands
 
@@ -176,10 +177,11 @@ Web on Vercel; API on a Bun-capable host (Render supports Bun natively — pin t
 
 ## Known limitations
 
-- Access QRs and complaints are complete on both the API and the web portal. Quizzes, announcements and push are later phases. See [`docs/evaluation-scope.md`](docs/evaluation-scope.md) for the exact Eval 1 / Eval 2 / future-scope split.
-- The web console is management-only by design. The mobile app now connects registration, passes, organiser inspection/scan, complaint reporting and profile/password flows. Quiz admission remains Evaluation 2 and is refused, never faked.
+- Access QRs, announcements, complaints, quizzes, push and offline scanning are implemented. See [`docs/evaluation-scope.md`](docs/evaluation-scope.md) for the evaluation split.
+- The web console is management-only by design. The mobile app connects registration, passes, organiser inspection/scan, complaints, quizzes and profile/password flows, including phone-number updates.
 - `RATE_LIMIT_SCALE` defaults to 1 and must stay 1 in production. Raise it only for a local test session, where many sign-ins legitimately come from one address.
 - `bun audit` still reports a high-severity Zod advisory (CVE-2023-54404) patched only in Zod 4. The exposure — array schemas without a length cap — is closed in every request schema; the migration itself is outstanding. See [`docs/phase4.5-audit.md`](docs/phase4.5-audit.md).
 - S3 and Brevo code paths exist and fail loudly when unconfigured, but have **not** been exercised with real credentials.
 - A Bruno collection is not generated; the OpenAPI document and contract tests are the current contract source.
+- Create/edit forms in the web console are native `<dialog>` modals. Long tables remain offset-paginated; cursor pagination is a future improvement, not a correctness issue at campus scale.
 - The API is a long-lived Bun/Hono server and cannot run on Vercel serverless.

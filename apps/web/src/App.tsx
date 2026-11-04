@@ -12,7 +12,7 @@ import {
 } from "react";
 import { ToastProvider } from "./components/feedback";
 import { Icon, Logo } from "./components/icons";
-import { Card, Kbd, PanelSkeleton } from "./components/ui";
+import { Card, Kbd, PanelSkeleton, formatDay } from "./components/ui";
 import { AuthPanel } from "./features/AuthPanel";
 import { type DashboardData, DashboardPanel } from "./features/DashboardPanel";
 import { type Page, api, query } from "./lib/api";
@@ -158,8 +158,16 @@ function useTheme() {
 
 type PaletteItem =
   | { kind: "event"; id: string; title: string; when: string; status: EventRow["status"] }
+  | { kind: "club"; id: string; name: string; detail: string }
+  | { kind: "person"; id: string; name: string; detail: string }
   | { kind: "tab"; tab: Tab; label: string; icon: string; hint: string }
   | { kind: "action"; action: "new" | "theme" | "signout"; label: string; icon: string };
+
+type SearchResults = {
+  events: EventRow[];
+  clubs: Array<{ id: string; name: string; slug: string; description: string | null }>;
+  people: Array<{ id: string; fullName: string; email: string; status: string }>;
+};
 
 function Shell() {
   const session = useSession();
@@ -176,7 +184,7 @@ function Shell() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [results, setResults] = useState<EventRow[] | null>(null);
+  const [results, setResults] = useState<SearchResults | null>(null);
   const [searching, setSearching] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -260,7 +268,7 @@ function Shell() {
   useEffect(() => {
     const q = search.trim();
     if (!q || !me) {
-      setResults(q.length >= 2 ? [] : null);
+      setResults(null);
       setSearching(false);
       return;
     }
@@ -270,9 +278,9 @@ function Shell() {
     }
     setSearching(true);
     const t = setTimeout(() => {
-      api<Page<EventRow>>(`/events${query({ q, limit: 6 })}`)
-        .then((p) => setResults(p.items))
-        .catch(() => setResults([]))
+      api<SearchResults>(`/search${query({ q, limit: 5 })}`)
+        .then((r) => setResults(r))
+        .catch(() => setResults({ events: [], clubs: [], people: [] }))
         .finally(() => setSearching(false));
     }, 220);
     return () => clearTimeout(t);
@@ -529,23 +537,53 @@ function Shell() {
         { kind: "action", action: "signout", label: "Sign out", icon: "logout" },
       ]
     : [];
-  const eventItems: Extract<PaletteItem, { kind: "event" }>[] = (results ?? []).map((r) => ({
-    kind: "event",
-    id: r.id,
-    title: r.title,
-    when: new Date(r.startsAt).toLocaleDateString(undefined, {
-      day: "numeric",
-      month: "short",
+  const eventItems: Extract<PaletteItem, { kind: "event" }>[] = (results?.events ?? []).map(
+    (r) => ({
+      kind: "event",
+      id: r.id,
+      title: r.title,
+      when: new Date(r.startsAt).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+      }),
+      status: r.status,
     }),
-    status: r.status,
+  );
+  const clubItems: Extract<PaletteItem, { kind: "club" }>[] = (results?.clubs ?? []).map((c) => ({
+    kind: "club",
+    id: c.id,
+    name: c.name,
+    detail: c.description ?? "Club",
   }));
-  const palette: PaletteItem[] = [...(emptyQuery ? [] : eventItems), ...navMatches, ...actions];
+  const personItems: Extract<PaletteItem, { kind: "person" }>[] = (results?.people ?? []).map(
+    (p) => ({
+      kind: "person",
+      id: p.id,
+      name: p.fullName,
+      detail: `${p.email} · ${p.status.replace(/_/g, " ").toLowerCase()}`,
+    }),
+  );
+  const palette: PaletteItem[] = [
+    ...(emptyQuery ? [] : eventItems),
+    ...(emptyQuery ? [] : clubItems),
+    ...(emptyQuery ? [] : personItems),
+    ...navMatches,
+    ...actions,
+  ];
   const showPalette = searchOpen && me;
 
   function choose(item: PaletteItem) {
     if (item.kind === "event") {
       if (isClubMember) openEvent(item.id);
       else navigate("reports");
+      return;
+    }
+    if (item.kind === "club") {
+      navigate("clubs");
+      return;
+    }
+    if (item.kind === "person") {
+      navigate("admin");
       return;
     }
     if (item.kind === "tab") {
@@ -717,8 +755,8 @@ function Shell() {
             <input
               ref={searchRef}
               type="search"
-              placeholder="Search events or jump to a section"
-              aria-label="Search events"
+              placeholder="Search events, clubs or people"
+              aria-label="Search events, clubs and people"
               value={search}
               onFocus={() => {
                 setActiveIndex(0);
@@ -741,8 +779,8 @@ function Shell() {
                     <h4>{searching ? "Searching" : `Events · ${eventItems.length}`}</h4>
                     {eventItems.length === 0 && !searching && (
                       <p className="popover-empty">
-                        No event you can see matches “{search.trim()}”. Try the club name or a
-                        shorter phrase.
+                        No event you can see matches “{search.trim()}”. Try a club name or a shorter
+                        phrase.
                       </p>
                     )}
                     {eventItems.map((item) => {
@@ -767,6 +805,52 @@ function Shell() {
                           <span className="pi-side">
                             {item.status.replace(/_/g, " ").toLowerCase()}
                           </span>
+                        </button>
+                      );
+                    })}
+                    {clubItems.length > 0 && <h4>Clubs · {clubItems.length}</h4>}
+                    {clubItems.map((item) => {
+                      const i = itemIndex();
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          aria-current={activeIndex === i ? "true" : undefined}
+                          className={`popover-item${activeIndex === i ? " is-active" : ""}`}
+                          onMouseEnter={() => setActiveIndex(i)}
+                          onClick={() => choose(item)}
+                        >
+                          <span className="pi-icon tone-muted">
+                            <Icon name="users" size={15} />
+                          </span>
+                          <span>
+                            <b>{item.name}</b>
+                            <span>{item.detail}</span>
+                          </span>
+                          <span className="pi-side">Club</span>
+                        </button>
+                      );
+                    })}
+                    {personItems.length > 0 && <h4>People · {personItems.length}</h4>}
+                    {personItems.map((item) => {
+                      const i = itemIndex();
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          aria-current={activeIndex === i ? "true" : undefined}
+                          className={`popover-item${activeIndex === i ? " is-active" : ""}`}
+                          onMouseEnter={() => setActiveIndex(i)}
+                          onClick={() => choose(item)}
+                        >
+                          <span className="pi-icon tone-muted">
+                            <Icon name="user" size={15} />
+                          </span>
+                          <span>
+                            <b>{item.name}</b>
+                            <span>{item.detail}</span>
+                          </span>
+                          <span className="pi-side">Admin</span>
                         </button>
                       );
                     })}

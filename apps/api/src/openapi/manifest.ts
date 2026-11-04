@@ -19,6 +19,7 @@ import {
 } from "../modules/registrations/routes";
 import { registerSchema } from "../modules/registrations/routes";
 import * as reportSchemas from "../modules/reports/schemas";
+import { searchQuerySchema } from "../modules/search/routes";
 
 /**
  * Single source of truth for the HTTP contract. Every entry references the same
@@ -317,6 +318,46 @@ export const operations: Operation[] = [
     body: adminSchemas.reactivateSchema,
   },
   {
+    method: "patch",
+    path: "/me",
+    tag: "Auth",
+    summary: "Update your name or phone number",
+    auth: true,
+    body: authSchemas.updateMeSchema,
+  },
+  {
+    method: "post",
+    path: "/jobs/maintenance",
+    tag: "Meta",
+    summary: "Optional scheduler entry point (X-Job-Token), disabled when no token is configured",
+    auth: false,
+  },
+  {
+    method: "get",
+    path: "/search",
+    tag: "Meta",
+    summary: "Search events, clubs and (for admins) people",
+    auth: true,
+    query: searchQuerySchema,
+  },
+  {
+    method: "get",
+    path: "/admin/setup",
+    tag: "Admin",
+    summary: "First-run institution setup checklist and counts",
+    auth: true,
+    roles: ["ADMIN"],
+  },
+  {
+    method: "get",
+    path: "/admin/audit",
+    tag: "Admin",
+    summary: "Institution-wide audit trail",
+    auth: true,
+    roles: ["ADMIN"],
+    query: adminSchemas.auditQuerySchema,
+  },
+  {
     method: "post",
     path: "/admin/jobs/maintenance",
     tag: "Admin",
@@ -536,6 +577,20 @@ export const operations: Operation[] = [
     successStatus: 201,
     idempotent: true,
     rateLimited: "20/min",
+  },
+  {
+    method: "get",
+    path: "/events/:id/calendar.ics",
+    tag: "Events",
+    summary: "Download an event as an iCalendar file",
+    auth: true,
+  },
+  {
+    method: "get",
+    path: "/events/:id/registrations.csv",
+    tag: "Registrations",
+    summary: "Export the full participant roster as CSV",
+    auth: true,
   },
   { method: "get", path: "/events/:id", tag: "Events", summary: "Event detail", auth: true },
   {

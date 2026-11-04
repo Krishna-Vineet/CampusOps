@@ -99,7 +99,11 @@ export async function verifyStudent(
   const result = await db.transaction(async (tx) => {
     const [user] = await tx
       .update(users)
-      .set({ status: "ACTIVE", updatedAt: new Date() })
+      .set({
+        status: "ACTIVE",
+        ...(row.user.phone ? { phoneVerifiedAt: row.user.phoneVerifiedAt ?? new Date() } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, id))
       .returning();
     const [profile] = await tx
@@ -197,6 +201,10 @@ export async function patchStudentProfile(
           .set({
             ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
             ...(input.phone !== undefined ? { phone: input.phone } : {}),
+            ...(input.phone !== undefined && input.phone !== null
+              ? { phoneVerifiedAt: new Date() }
+              : {}),
+            ...(input.phone === null ? { phoneVerifiedAt: null } : {}),
             updatedAt: new Date(),
           })
           .where(eq(users.id, id))

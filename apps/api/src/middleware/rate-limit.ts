@@ -1,15 +1,39 @@
 import { sql } from "drizzle-orm";
+import type { Context } from "hono";
+import { getConnInfo } from "hono/bun";
 import { createMiddleware } from "hono/factory";
 import { authConfig, env } from "../config/env";
 import { getDb } from "../db/client";
 import { ApiError } from "../utils/api-error";
 import { hashToken } from "../utils/tokens";
 
-export function clientIp(headers: Headers): string {
-  if (!env.TRUST_PROXY_HEADERS) return "direct";
-  return (
-    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? headers.get("x-real-ip") ?? "direct"
-  );
+/**
+ * Resolve the caller's address.
+ *
+ * Behind a proxy we read X-Forwarded-For from the trusted end of the chain (the
+ * right-most entries are appended by infrastructure we control), never the
+ * client-supplied left edge. Without trusted proxy headers we use the socket
+ * address. The old "direct" fallback silently put every anonymous caller in one
+ * shared bucket, which turns a burst of logins into a campus-wide lockout.
+ */
+export function clientIp(c: Context): string {
+  if (env.TRUST_PROXY_HEADERS) {
+    const chain = (c.req.header("x-forwarded-for") ?? "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (chain.length > 0) {
+      const index = Math.max(0, chain.length - env.TRUSTED_PROXY_HOPS);
+      return chain[index] ?? "unknown";
+    }
+    const real = c.req.header("x-real-ip")?.trim();
+    if (real) return real;
+  }
+  try {
+    return getConnInfo(c).remote.address ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 /**
@@ -30,9 +54,7 @@ export function rateLimit(options: {
     const { db } = getDb();
     const cfg = authConfig();
     const identity =
-      options.keyBy === "user"
-        ? (c.get("auth")?.user.id ?? clientIp(c.req.raw.headers))
-        : clientIp(c.req.raw.headers);
+      options.keyBy === "user" ? (c.get("auth")?.user.id ?? clientIp(c)) : clientIp(c);
     const keyHash = hashToken(`${options.prefix}:${identity}`, cfg.refreshPepper) ?? "";
     const expiresAt = new Date(Date.now() + options.windowMs);
     const rows = await db.execute<{ count: number }>(sql`
