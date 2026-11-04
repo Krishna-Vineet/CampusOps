@@ -445,11 +445,6 @@ function Shell() {
             <span className="auth-badge">Staff access</span>
             <AuthPanel config={config} onAuthenticated={onAuthenticated} />
           </div>
-          <div className="auth-foot">
-            <span>© {new Date().getFullYear()} CampusOps</span>
-            <span>·</span>
-            <b>Made by Vineet</b>
-          </div>
         </div>
       </div>
     );
