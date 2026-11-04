@@ -338,7 +338,7 @@ export function ReportsPanel() {
         </Card>
       )}
 
-      {snapshot && (
+      {snapshot?.event && (
         <>
           <Card title="Event summary">
             <dl className="kv">

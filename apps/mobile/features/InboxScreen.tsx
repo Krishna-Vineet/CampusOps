@@ -101,7 +101,7 @@ export function InboxScreen({ onOpenEvent }: { onOpenEvent?: (eventId: string) =
                 {item.isPinned && <Badge label="Pinned" tone="warn" />}
                 {!item.readAt && <Badge label="New" tone="primary" />}
               </View>
-              <Muted>{item.event.title}</Muted>
+              <Muted>{item.event?.title ?? "Event update"}</Muted>
               <Text
                 style={{ color: colors.ink, lineHeight: 21, marginTop: 6 }}
                 numberOfLines={expanded ? undefined : 2}

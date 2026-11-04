@@ -92,6 +92,10 @@ export function EventsScreen({
     setError(null);
     api<ParticipantView>(`/events/${selected}/participant`)
       .then((d) => {
+        // A truncated or mock payload used to reach the renderer and crash on
+        // `detail.event.title`. Fail with a readable message instead.
+        if (!d?.event?.id)
+          throw new Error("Event details are incomplete. Pull to refresh and try again.");
         if (alive) setDetail(d);
       })
       .catch((e) => {

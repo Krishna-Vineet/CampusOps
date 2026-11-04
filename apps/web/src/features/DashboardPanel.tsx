@@ -402,18 +402,21 @@ export const DashboardPanel = memo(function DashboardPanel({
             ) : (
               <div className="attn-list">
                 {data.approvalQueue.slice(0, 4).map((a) => (
-                  <div className="queue-row" key={a.request.id}>
+                  <div
+                    className="queue-row"
+                    key={a.request?.id ?? `${a.event?.id}-${a.request?.title}`}
+                  >
                     <span className="stat-icon tone-brand">
                       <Icon name="inbox" size={14} />
                     </span>
                     <span className="q-body">
-                      <b>{a.request.title}</b>
+                      <b>{a.request?.title ?? "Approval request"}</b>
                       <span>
-                        {a.event.title} · {a.club.name}
+                        {a.event?.title ?? "Event"} · {a.club?.name ?? "Club"}
                       </span>
                     </span>
                     <span className="q-when">
-                      {a.request.dueAt ? formatWhen(a.request.dueAt) : "No due date"}
+                      {a.request?.dueAt ? formatWhen(a.request.dueAt) : "No due date"}
                     </span>
                   </div>
                 ))}

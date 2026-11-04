@@ -7,7 +7,6 @@ import {
   eligibilityPolicySchema,
   evaluateEligibility,
   summarizeBundle,
-  validateAdmissionForAudience,
   validateBundleComposition,
   validateEventWindow,
 } from "@campusops/shared";
@@ -39,6 +38,7 @@ import {
   eventInvitations,
   eventRevisions,
   files,
+  quizzes,
   resourceReservations,
   resourceUnits,
   roleAssignments,
@@ -109,6 +109,36 @@ async function assertOwnedBanner(ownerId: string, fileId: string | null | undefi
     throw new ApiError("VALIDATION_ERROR", "Finish the banner upload before attaching it.");
 }
 
+/** Quiz admission only works when a matching quiz is attached. */
+const QUIZ_MODE_FOR: Record<string, "TOP_N" | "FIRST_QUALIFIED"> = {
+  QUIZ_TOP_N: "TOP_N",
+  QUIZ_FIRST_QUALIFIED: "FIRST_QUALIFIED",
+};
+
+async function assertQuizReady(
+  tx: Parameters<Parameters<ReturnType<typeof getDb>["db"]["transaction"]>[0]>[0],
+  event: { id: string; admissionMode: string },
+  action: string,
+) {
+  const expected = QUIZ_MODE_FOR[event.admissionMode];
+  if (!expected) return;
+  const [quiz] = await tx
+    .select({ mode: quizzes.mode })
+    .from(quizzes)
+    .where(eq(quizzes.eventId, event.id))
+    .limit(1);
+  if (!quiz)
+    throw new ApiError(
+      "QUIZ_REQUIRED",
+      `This event uses ${event.admissionMode} admission but has no quiz. Attach the quiz before you ${action}.`,
+    );
+  if (quiz.mode !== expected)
+    throw new ApiError(
+      "QUIZ_MODE_MISMATCH",
+      `The attached quiz is ${quiz.mode}, but the event uses ${event.admissionMode}. Make them match before you ${action}.`,
+    );
+}
+
 export async function createEvent(
   auth: AuthContext,
   input: z.infer<typeof createEventSchema>,
@@ -118,13 +148,8 @@ export async function createEvent(
   const problems = validateEventWindow(input);
   if (problems.length > 0)
     throw new ApiError("EVENT_WINDOW_INVALID", problems.join(" "), { problems });
-  // Quizzes arrive in Phase 7; no quiz can be linked yet, so quiz-ranked admission
-  // is refused instead of quietly degrading to first-come-first-served.
-  const admissionProblems = validateAdmissionForAudience(input.audience, input.admissionMode);
-  if (admissionProblems.length > 0)
-    throw new ApiError("VALIDATION_ERROR", admissionProblems.join(" "), {
-      problems: admissionProblems,
-    });
+  // A quiz-mode draft is allowed: the quiz is attached from the event workspace
+  // before submission, and submit/publish refuse the event if it is still missing.
   await assertOwnedBanner(auth.user.id, input.bannerFileId);
   const { db } = getDb();
   try {
@@ -211,14 +236,18 @@ export async function updateEvent(
     const problems = validateEventWindow(merged);
     if (problems.length > 0)
       throw new ApiError("EVENT_WINDOW_INVALID", problems.join(" "), { problems });
-    const admissionProblems = validateAdmissionForAudience(
-      input.audience ?? event.audience,
-      input.admissionMode ?? event.admissionMode,
-    );
-    if (admissionProblems.length > 0)
-      throw new ApiError("VALIDATION_ERROR", admissionProblems.join(" "), {
-        problems: admissionProblems,
-      });
+    const [linkedQuiz] = await tx
+      .select({ mode: quizzes.mode })
+      .from(quizzes)
+      .where(eq(quizzes.eventId, eventId))
+      .limit(1);
+    const nextAdmission = input.admissionMode ?? event.admissionMode;
+    const expectedQuizMode = QUIZ_MODE_FOR[nextAdmission];
+    if (expectedQuizMode && linkedQuiz && linkedQuiz.mode !== expectedQuizMode)
+      throw new ApiError(
+        "QUIZ_MODE_MISMATCH",
+        `The attached quiz is ${linkedQuiz.mode}; ${nextAdmission} needs ${expectedQuizMode}.`,
+      );
     if (input.bannerFileId !== undefined) await assertOwnedBanner(auth.user.id, input.bannerFileId);
 
     const changed = changedCriticalFields(
@@ -312,6 +341,8 @@ export async function submitEvent(
       });
       if (problems.length > 0)
         throw new ApiError("EVENT_WINDOW_INVALID", problems.join(" "), { problems });
+
+      await assertQuizReady(tx, event, "submit it");
 
       const compositionProblems = validateBundleComposition(input.requests, event.audience);
       if (compositionProblems.length > 0)
@@ -585,6 +616,8 @@ export async function publishEvent(
     if (event.currentRevision !== input.expectedRevision)
       throw new ApiError("CONFLICT", "The event changed since you opened it. Reload and retry.");
 
+    await assertQuizReady(tx, event, "publish it");
+
     const [bundle] = await tx
       .select()
       .from(approvalBundles)
@@ -690,6 +723,8 @@ export async function cancelEvent(
         ),
       );
     // Cancel still-open approval requests so approver inboxes stay clean.
+    await assertQuizReady(tx, event, "publish it");
+
     const [bundle] = await tx
       .select()
       .from(approvalBundles)

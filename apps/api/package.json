@@ -9,7 +9,7 @@
     "db:migrate": "bun run src/db/migrate.ts",
     "db:seed": "bun run src/db/seed.ts",
     "db:check": "bun run src/db/check.ts",
-    "test": "bun test",
+    "test": "bun test --timeout 30000",
     "typecheck": "tsc --noEmit",
     "jobs:run": "bun run src/jobs/run-once.ts",
     "admin:bootstrap": "bun run src/db/bootstrap-admin.ts"

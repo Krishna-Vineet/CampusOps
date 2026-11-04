@@ -41,11 +41,17 @@ function numeric(value: string | number | null): number | null {
 }
 
 /** The event's admission mode is the single source of truth for the quiz mode. */
-function assertQuizEvent(event: typeof events.$inferSelect) {
-  if (!QUIZ_ADMISSION[event.admissionMode])
+/**
+ * A quiz may be attached while the event is still a draft, even if it has not
+ * been switched to quiz admission yet. The coordinator configures the quiz in
+ * the event workspace and then chooses the matching admission mode; refusing
+ * the quiz until the mode changes made the two steps impossible to complete.
+ */
+function assertQuizWritable(event: typeof events.$inferSelect) {
+  if (event.status === "CANCELLED" || event.status === "COMPLETED")
     throw new ApiError(
-      "VALIDATION_ERROR",
-      "This event does not use quiz admission. Set the admission mode to a quiz mode first.",
+      "INVALID_STATE_TRANSITION",
+      "This event is closed; a quiz cannot be configured on it.",
     );
 }
 
@@ -126,13 +132,14 @@ export async function upsertQuiz(
   const { db } = getDb();
   const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
   if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-  assertQuizEvent(event);
-  const mode = QUIZ_ADMISSION[event.admissionMode] as QuizMode;
-  if (input.mode !== mode)
+  assertQuizWritable(event);
+  const requiredMode = QUIZ_ADMISSION[event.admissionMode];
+  if (requiredMode && input.mode !== requiredMode)
     throw new ApiError(
       "VALIDATION_ERROR",
-      `This event's admission mode is ${event.admissionMode}; the quiz mode must be ${mode}.`,
+      `This event's admission mode is ${event.admissionMode}; the quiz mode must be ${requiredMode}.`,
     );
+  const mode = input.mode as QuizMode;
 
   return db.transaction(async (tx) => {
     const [existing] = await tx.select().from(quizzes).where(eq(quizzes.eventId, eventId)).limit(1);
@@ -351,8 +358,17 @@ export async function startAttempt(auth: AuthContext, eventId: string, audit?: A
     throw new ApiError("FORBIDDEN", "Staff accounts do not take part in participant quizzes.");
   const { db } = getDb();
   const [quiz] = await db.select().from(quizzes).where(eq(quizzes.eventId, eventId)).limit(1);
-  if (!quiz || quiz.status !== "PUBLISHED")
+  if (!quiz) throw new ApiError("EVENT_NOT_OPEN", "This quiz is not open for attempts.");
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
+  if (QUIZ_ADMISSION[event.admissionMode] !== quiz.mode)
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      "This quiz is not part of the event's admission process.",
+    );
+  if (quiz.status !== "PUBLISHED")
     throw new ApiError("EVENT_NOT_OPEN", "This quiz is not open for attempts.");
+
   const now = new Date();
   if (now < quiz.opensAt || now > quiz.closesAt)
     throw new ApiError("EVENT_NOT_OPEN", "The quiz window is not open right now.");
@@ -683,6 +699,11 @@ export async function allocate(quizId: string, note: string | undefined, audit?:
       .for("update")
       .limit(1);
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
+    if (QUIZ_ADMISSION[event.admissionMode] !== quiz.mode)
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        "This quiz is not part of the event's admission process.",
+      );
     const rows = await tx
       .select()
       .from(quizAttempts)

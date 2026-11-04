@@ -495,6 +495,7 @@ describe("announcements", () => {
     // so on a busy database new announcements silently disappeared. Visibility
     // is now a SQL predicate, so the count of other events is irrelevant.
     const { db } = getDb();
+    const fillerStart = Date.now() - 400 * 86_400_000;
     const filler = Array.from({ length: 210 }, (_, i) => ({
       clubId: ids.club as string,
       title: `Inbox filler ${stamp} ${i}`,
@@ -502,12 +503,12 @@ describe("announcements", () => {
       capacity: 10,
       admissionMode: "FCFS" as const,
       audience: "COLLEGE_ONLY" as const,
-      startsAt: new Date(Date.now() - 400 * 86_400_000),
-      endsAt: new Date(Date.now() - 399 * 86_400_000),
-      registrationOpensAt: new Date(Date.now() - 402 * 86_400_000),
-      registrationClosesAt: new Date(Date.now() - 400 * 86_400_000),
+      startsAt: new Date(fillerStart),
+      endsAt: new Date(fillerStart + 86_400_000),
+      registrationOpensAt: new Date(fillerStart - 2 * 86_400_000),
+      registrationClosesAt: new Date(fillerStart),
       status: "COMPLETED" as const,
-      publishedAt: new Date(Date.now() - 402 * 86_400_000),
+      publishedAt: new Date(fillerStart - 2 * 86_400_000),
       createdBy: ids.lead as string,
     }));
     await db.insert(events).values(filler);

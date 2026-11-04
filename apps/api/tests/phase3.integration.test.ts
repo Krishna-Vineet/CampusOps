@@ -1359,7 +1359,8 @@ describe("phase 3 audit history and account context", () => {
     expect(JSON.stringify(lead.json.data)).not.toContain("passwordHash");
   });
 
-  test("quiz-ranked admission is refused until quizzes exist", async () => {
+  test("quiz-ranked admission is drafted freely but cannot be submitted without a quiz", async () => {
+    let revision = 1;
     for (const admissionMode of ["QUIZ_TOP_N", "QUIZ_FIRST_QUALIFIED"]) {
       const created = await req(
         "POST",
@@ -1367,21 +1368,36 @@ describe("phase 3 audit history and account context", () => {
         { ...eventBody(ids.club as string, 61), admissionMode },
         tokens.lead,
       );
-      expect(created.status).toBe(400);
-      expect(created.json.error.message).toContain("needs a quiz");
+      // The quiz is attached from the event workspace, so the draft itself is legal.
+      expect(created.status).toBe(201);
+      expect(created.json.data.admissionMode).toBe(admissionMode);
+      revision = created.json.data.currentRevision;
+
+      const patched = await req(
+        "PATCH",
+        `/api/v1/events/${created.json.data.id}`,
+        {
+          expectedRevision: revision,
+          admissionMode: admissionMode === "QUIZ_TOP_N" ? "QUIZ_FIRST_QUALIFIED" : "QUIZ_TOP_N",
+        },
+        tokens.lead,
+      );
+      expect(patched.status).toBe(200);
+
+      // Submitting is the gate: without a matching quiz the event cannot move on.
+      const submitted = await req(
+        "POST",
+        `/api/v1/events/${created.json.data.id}/submit`,
+        {
+          expectedRevision: revision,
+          requests: [
+            { type: "ORGANIZE", title: "Organize the quiz round", assignedApproverId: ids.faculty },
+          ],
+        },
+        tokens.lead,
+      );
+      expect(submitted.status).toBe(422);
+      expect(submitted.json.error.code).toBe("QUIZ_REQUIRED");
     }
-    const created = await req(
-      "POST",
-      "/api/v1/events",
-      eventBody(ids.club as string, 61),
-      tokens.lead,
-    );
-    const patch = await req(
-      "PATCH",
-      `/api/v1/events/${created.json.data.id}`,
-      { expectedRevision: 1, admissionMode: "QUIZ_TOP_N" },
-      tokens.lead,
-    );
-    expect(patch.status).toBe(400);
   });
 });

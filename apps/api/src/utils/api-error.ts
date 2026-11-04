@@ -26,7 +26,9 @@ export type ApiErrorCode =
   | "NOT_ELIGIBLE"
   | "EVENT_NOT_OPEN"
   | "HOLD_EXPIRED"
-  | "APPROVER_UNAVAILABLE";
+  | "APPROVER_UNAVAILABLE"
+  | "QUIZ_REQUIRED"
+  | "QUIZ_MODE_MISMATCH";
 
 const statusByCode: Record<ApiErrorCode, number> = {
   UNAUTHENTICATED: 401,
@@ -57,6 +59,8 @@ const statusByCode: Record<ApiErrorCode, number> = {
   EVENT_NOT_OPEN: 409,
   HOLD_EXPIRED: 409,
   APPROVER_UNAVAILABLE: 422,
+  QUIZ_REQUIRED: 422,
+  QUIZ_MODE_MISMATCH: 409,
 };
 
 export class ApiError extends Error {

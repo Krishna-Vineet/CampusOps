@@ -27,6 +27,7 @@ export function AuthScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [institutionName, setInstitutionName] = useState("");
   const [rollNumber, setRollNumber] = useState("");
   const [program, setProgram] = useState("");
@@ -91,10 +92,14 @@ export function AuthScreen() {
         if (!program && mode === "college") throw new Error("Choose your programme.");
         if (mode === "college" && graduationYear && !/^20\d{2}$/.test(graduationYear))
           throw new Error("Enter a valid four-digit graduation year.");
+        const trimmedPhone = phone.trim();
+        if (trimmedPhone && !/^[+\d][\d\s-]{6,19}$/.test(trimmedPhone))
+          throw new Error("Enter a phone number with 7 to 15 digits, or leave it blank.");
         const body = {
           email: normalized,
           password,
           fullName: fullName.trim(),
+          ...(trimmedPhone ? { phone: trimmedPhone } : {}),
           institutionName:
             mode === "college" ? (config?.institutionName ?? "Campus") : institutionName.trim(),
           client: "mobile",
@@ -227,6 +232,15 @@ export function AuthScreen() {
               value={fullName}
               onChangeText={setFullName}
               autoCapitalize="sentences"
+            />
+            <Field
+              label="Phone number"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              placeholder="+91 98765 43210"
+              hint="Used by event coordinators if they need to reach you on the day."
+              testID="phone"
             />
             {mode === "outsider" && (
               <Field

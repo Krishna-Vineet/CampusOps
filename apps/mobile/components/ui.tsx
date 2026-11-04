@@ -202,7 +202,7 @@ export function Field({
   onChangeText: (v: string) => void;
   placeholder?: string | undefined;
   secureTextEntry?: boolean | undefined;
-  keyboardType?: "default" | "email-address" | "numeric" | undefined;
+  keyboardType?: "default" | "email-address" | "numeric" | "phone-pad" | undefined;
   multiline?: boolean | undefined;
   maxLength?: number | undefined;
   hint?: string | undefined;

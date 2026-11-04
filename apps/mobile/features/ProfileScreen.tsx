@@ -126,6 +126,7 @@ export function ProfileScreen({ onComplaints }: { onComplaints: () => void }) {
         <Card title="Student profile">
           <Row label="Institution" value={student.institutionName} />
           <Row label="Roll number" value={student.rollNumber ?? "—"} />
+          <Row label="Phone" value={me.user.phone ?? "—"} />
           <Row
             label="Student ID proof"
             value={student.idProofFileId ? "Uploaded for faculty review" : "Not uploaded"}

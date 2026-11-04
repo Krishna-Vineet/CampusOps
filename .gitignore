@@ -14,3 +14,7 @@ coverage/
 
 # Browser-walkthrough artefacts: regenerated on every run.
 e2e/downloaded-report.pdf
+
+# Scenario state and generated artefacts (the PDF report in docs/ is committed).
+scripts/e2e/state.json
+scripts/e2e/*.pdf

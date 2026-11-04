@@ -153,7 +153,7 @@ export function PassesScreen() {
             {passes.map((p) => (
               <Chip
                 key={p.passId}
-                label={p.event.title}
+                label={p.event?.title ?? "Event pass"}
                 selected={p.passId === pass?.passId}
                 onPress={() => {
                   setPassId(p.passId);
@@ -187,7 +187,7 @@ export function PassesScreen() {
                       lineHeight: 28,
                     }}
                   >
-                    {pass.event.title}
+                    {pass.event?.title ?? "Event pass"}
                   </Text>
                   <Text style={{ color: "rgba(246,241,229,0.62)", fontSize: 12.5, lineHeight: 18 }}>
                     {when(pass.event.startsAt, tz)}

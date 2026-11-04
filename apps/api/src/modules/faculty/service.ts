@@ -49,6 +49,7 @@ export async function listVerificationQueue(
       id: r.user.id,
       email: r.user.email,
       fullName: r.user.fullName,
+      phone: r.user.phone,
       status: r.user.status,
       profile: r.profile,
     })),

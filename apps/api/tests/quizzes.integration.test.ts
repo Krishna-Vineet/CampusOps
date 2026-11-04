@@ -585,7 +585,7 @@ describe("quiz editing guards", () => {
     expect(res.status).toBe(409);
   });
 
-  test("an event without quiz admission refuses a quiz", async () => {
+  test("a draft quiz can be attached before the event adopts quiz admission", async () => {
     const { db } = getDb();
     const [event] = await db
       .insert(events)
@@ -598,7 +598,8 @@ describe("quiz editing guards", () => {
         startsAt: new Date(Date.now() + 86_400_000),
         endsAt: new Date(Date.now() + 90_000_000),
         registrationOpensAt: new Date(Date.now() - 3_600_000),
-        registrationClosesAt: new Date(Date.now() + 86_400_000),
+        // Registration must close at or before the start, never after it.
+        registrationClosesAt: new Date(Date.now() + 82_800_000),
         status: "PUBLISHED",
         publishedAt: new Date(),
         createdBy: ids.lead as string,
@@ -610,7 +611,11 @@ describe("quiz editing guards", () => {
       { mode: "TOP_N", ...window(), durationSeconds: 600, questions: QUESTIONS },
       tokens.lead,
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    // The quiz is inert while the event still admits participants first-come-first-served.
+    const attempt = await req("POST", `/api/v1/events/${event?.id}/quiz/attempts`, {}, tokens.s1);
+    expect(attempt.status).toBe(400);
+    expect(attempt.json.error.message).toContain("not part of the event's admission process");
   });
 
   test("the participant view exposes rules and own state but no answer key", async () => {

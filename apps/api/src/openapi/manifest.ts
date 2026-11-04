@@ -185,6 +185,13 @@ export const operations: Operation[] = [
   },
   {
     method: "get",
+    path: "/auth/programs",
+    tag: "Auth",
+    summary: "Public programme choices for student registration",
+    auth: false,
+  },
+  {
+    method: "get",
     path: "/me/registrations",
     tag: "Registrations",
     summary: "The participant's own registrations",
@@ -387,6 +394,23 @@ export const operations: Operation[] = [
     tag: "Departments",
     summary: "List departments for pickers and scoping",
     auth: true,
+  },
+  {
+    method: "get",
+    path: "/departments/programs",
+    tag: "Departments",
+    summary: "List programmes for pickers and scoping",
+    auth: true,
+  },
+  {
+    method: "post",
+    path: "/departments/programs",
+    tag: "Departments",
+    summary: "Create a programme",
+    auth: true,
+    roles: ["ADMIN"],
+    body: departmentSchemas.createProgramSchema,
+    successStatus: 201,
   },
   {
     method: "post",

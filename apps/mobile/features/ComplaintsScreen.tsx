@@ -64,6 +64,10 @@ export function ComplaintsScreen({
     let alive = true;
     api<ComplaintLocation>(`/complaints/locations/${locationId}`)
       .then((d) => {
+        if (!d?.location?.id || !d?.event?.id)
+          throw new Error(
+            "This QR did not resolve to a full reporting point. Ask the organiser for a new poster.",
+          );
         if (alive) setLocation(d);
       })
       .catch((e) => {

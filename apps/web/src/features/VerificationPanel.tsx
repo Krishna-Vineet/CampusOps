@@ -9,6 +9,7 @@ type StudentRow = {
   id: string;
   email: string;
   fullName: string;
+  phone: string | null;
   status: string;
   profile: {
     rollNumber: string | null;
@@ -28,6 +29,7 @@ type StudentDetail = {
     id: string;
     email: string;
     fullName: string;
+    phone: string | null;
     status: string;
     emailVerifiedAt: string | null;
   };
@@ -178,6 +180,7 @@ export function VerificationPanel() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Roll no.</th>
+                  <th>Phone</th>
                   <th>Department</th>
                   <th>Proof</th>
                   <th> </th>
@@ -189,6 +192,7 @@ export function VerificationPanel() {
                     <td>{s.fullName}</td>
                     <td className="meta">{s.email}</td>
                     <td>{s.profile.rollNumber ?? "—"}</td>
+                    <td className="meta">{s.phone ?? "—"}</td>
                     <td className="meta">{deptName(s.profile.departmentId)}</td>
                     <td>{s.profile.idProofFileId ? "Uploaded" : "Missing"}</td>
                     <td>
@@ -230,6 +234,8 @@ export function VerificationPanel() {
                 <span className="chip">not verified</span>
               )}
             </dd>
+            <dt>Phone</dt>
+            <dd>{detail.user.phone ?? "—"}</dd>
             <dt>Status</dt>
             <dd>{detail.user.status.replace(/_/g, " ")}</dd>
             <dt>Institution</dt>

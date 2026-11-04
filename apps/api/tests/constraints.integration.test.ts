@@ -85,8 +85,8 @@ maybe("database constraints", () => {
       sql`SELECT count(*)::int AS n FROM users WHERE email LIKE '%@demo.campusops.local'`,
     );
     // The seed script is exercised externally in CI/local gates; here we assert
-    // the fixed demo set size. It is 10 since the separate scanning-staff account
-    // was removed: an event's own coordinators and club faculty do the scanning.
-    expect(Number(before[0]?.n)).toBe(10);
+    // the fixed demo set size: principal, HOD/Dean, two faculty, four club
+    // organisers, two students, one outsider, one admin and support.
+    expect(Number(before[0]?.n)).toBe(13);
   });
 });
