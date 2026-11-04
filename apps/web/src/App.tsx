@@ -169,14 +169,21 @@ function useTheme() {
 type PaletteItem =
   | { kind: "event"; id: string; title: string; when: string; status: EventRow["status"] }
   | { kind: "club"; id: string; name: string; detail: string }
-  | { kind: "person"; id: string; name: string; detail: string }
+  | { kind: "person"; id: string; name: string; detail: string; role: string; roles: string[] }
   | { kind: "tab"; tab: Tab; label: string; icon: string; hint: string }
   | { kind: "action"; action: "new" | "theme" | "signout"; label: string; icon: string };
 
 type SearchResults = {
   events: EventRow[];
   clubs: Array<{ id: string; name: string; slug: string; description: string | null }>;
-  people: Array<{ id: string; fullName: string; email: string; status: string }>;
+  people: Array<{
+    id: string;
+    fullName: string;
+    email: string;
+    status: string;
+    role: string;
+    roles: string[];
+  }>;
 };
 
 function Shell() {
@@ -589,6 +596,8 @@ function Shell() {
       id: p.id,
       name: p.fullName,
       detail: `${p.email} · ${p.status.replace(/_/g, " ").toLowerCase()}`,
+      role: p.role,
+      roles: p.roles,
     }),
   );
   const palette: PaletteItem[] = [
@@ -878,7 +887,12 @@ function Shell() {
                             <b>{item.name}</b>
                             <span>{item.detail}</span>
                           </span>
-                          <span className="pi-side">Admin</span>
+                          <span
+                            className={`pi-side role-pill role-${item.role.toLowerCase()}`}
+                            title={item.roles.join(" · ")}
+                          >
+                            {item.role}
+                          </span>
                         </button>
                       );
                     })}

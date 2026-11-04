@@ -4467,3 +4467,315 @@ button.scope-option.active strong {
 .placement-editor .grid-2 {
   margin-bottom: 10px;
 }
+
+/* Search role pills — the console role, not the raw account type. */
+.popover-item .pi-side.role-pill {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.role-pill.role-admin {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--accent-ink);
+}
+.role-pill.role-hod {
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 26%, transparent);
+  color: var(--warn);
+}
+.role-pill.role-faculty {
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface));
+  border-color: color-mix(in srgb, var(--ink) 16%, transparent);
+  color: var(--ink);
+}
+.role-pill.role-coordinator {
+  background: var(--good-soft);
+  border-color: color-mix(in srgb, var(--good) 24%, transparent);
+  color: var(--good);
+}
+.role-pill.role-outsider {
+  background: var(--bad-soft);
+  border-color: color-mix(in srgb, var(--bad) 22%, transparent);
+  color: var(--bad);
+}
+
+/* Resource calendar: a real Mon–Sat grid with pinned header and first column. */
+.week-scroll {
+  position: relative;
+  overflow: auto;
+  max-height: min(72vh, 760px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overscroll-behavior: contain;
+}
+.week-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) repeat(6, minmax(128px, 1fr));
+  min-width: 960px;
+  align-items: stretch;
+}
+.week-corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  padding: 10px 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.week-day-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 9px 12px 10px;
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.week-day-head span {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.week-day-head strong {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.05;
+}
+.week-day-head small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.week-day-head.is-today,
+.week-cell.is-today {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.week-day-head.is-today span,
+.week-day-head.is-today small {
+  color: var(--accent-ink);
+}
+.week-resource {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 76px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+.week-resource strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.week-resource .meta {
+  font-size: 10.5px;
+}
+.week-unit-state {
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.week-unit-state.active {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 20%, transparent);
+  background: var(--good-soft);
+}
+.week-unit-state.maintenance {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 22%, transparent);
+  background: var(--warn-soft);
+}
+.week-unit-state.retired {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 20%, transparent);
+  background: var(--bad-soft);
+}
+.week-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 76px;
+  padding: 6px;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+.week-free {
+  margin: auto 0;
+  padding-left: 2px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+button.week-booking {
+  display: grid;
+  min-height: 0;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  text-align: left;
+  line-height: 1.2;
+  font-size: 11px;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+button.week-booking:hover,
+button.week-booking:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+button.week-booking .wb-time {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  opacity: 0.8;
+}
+button.week-booking .wb-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.week-booking.requested {
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 24%, transparent);
+  color: var(--warn);
+}
+button.week-booking.approved {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--accent-ink);
+}
+button.week-booking.confirmed {
+  background: var(--good-soft);
+  border-color: color-mix(in srgb, var(--good) 24%, transparent);
+  color: var(--good);
+}
+
+.booking-tip {
+  position: fixed;
+  z-index: 140;
+  width: 304px;
+  padding: 12px 13px 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  pointer-events: none;
+  animation: tip-in 0.12s ease;
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.booking-tip .bt-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.booking-tip .bt-top strong {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.booking-tip .bt-place {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.booking-tip .bt-kv {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 4px 8px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.booking-tip .bt-kv dt {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.booking-tip .bt-kv dd {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.booking-tip .bt-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.booking-detail-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .week-scroll {
+    max-height: none;
+  }
+  .week-grid {
+    grid-template-columns: minmax(148px, 170px) repeat(6, minmax(112px, 1fr));
+    min-width: 840px;
+  }
+  .booking-tip {
+    width: 264px;
+  }
+}

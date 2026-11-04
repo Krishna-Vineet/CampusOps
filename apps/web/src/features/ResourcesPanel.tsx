@@ -1,5 +1,5 @@
 import { RESOURCE_STATUS_LABELS, type ResourceStatus } from "@campusops/shared/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ConfirmDialog,
   FormDialog,
@@ -8,19 +8,10 @@ import {
   useAction,
   useToast,
 } from "../components/feedback";
-import {
-  Card,
-  Empty,
-  Field,
-  ReservationBadge,
-  formatWhen,
-  fromLocalInput,
-  toLocalInput,
-} from "../components/ui";
+import { Card, Empty, Field, ReservationBadge, formatWhen, toLocalInput } from "../components/ui";
 import { type Page, api, errorMessage, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
 import { useSession } from "../lib/session";
-import type { AvailabilityItem } from "../lib/types";
 
 type Unit = {
   id: string;
@@ -44,25 +35,81 @@ type Booking = {
   endsAt: string;
   status: string;
   eventId: string | null;
+  eventStatus: string | null;
+  clubName: string | null;
   title: string;
 };
 type CalendarRow = {
   resourceUnitId: string;
   unitLabel: string;
+  unitStatus: ResourceStatus;
   resourceName: string;
+  resourceStatus: ResourceStatus;
+  capacity: number | null;
   bookings: Booking[];
 };
 type Department = { id: string; name: string };
 
 type Sub = "calendar" | "catalogue";
 
-function defaultWindow(daysAhead: number) {
-  const a = new Date();
-  a.setDate(a.getDate() + daysAhead);
-  a.setHours(10, 0, 0, 0);
-  const b = new Date(a);
-  b.setHours(13, 0, 0, 0);
-  return { startsAt: toLocalInput(a), endsAt: toLocalInput(b) };
+const WEEK_LENGTH = 6;
+
+function addDays(date: Date, days: number) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function startOfWeek(date: Date) {
+  const d = startOfDay(date);
+  const offset = (d.getDay() + 6) % 7;
+  return addDays(d, -offset);
+}
+
+function sameDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function durationMinutes(booking: Booking) {
+  return Math.max(
+    1,
+    Math.round(
+      (new Date(booking.endsAt).getTime() - new Date(booking.startsAt).getTime()) / 60_000,
+    ),
+  );
+}
+
+function durationLabel(minutes: number) {
+  if (minutes >= 1_440) {
+    const days = Math.round(minutes / 1_440);
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return `${hours} hr${rest ? ` ${rest} min` : ""}`;
+  }
+  return `${minutes} min`;
+}
+
+function dayPortion(booking: Booking, day: Date) {
+  const dayStart = startOfDay(day);
+  const dayEnd = addDays(dayStart, 1);
+  const startsAt = new Date(booking.startsAt);
+  const endsAt = new Date(booking.endsAt);
+  if (endsAt <= dayStart || startsAt >= dayEnd) return null;
+  return {
+    from: startsAt < dayStart ? dayStart : startsAt,
+    to: endsAt > dayEnd ? dayEnd : endsAt,
+  };
+}
+
+function plainStatus(value: string) {
+  return value.replace(/_/g, " ").toLowerCase();
 }
 
 function startOfDay(date: Date) {
@@ -81,10 +128,6 @@ function toDateInput(date: Date) {
 function fromDateInput(value: string) {
   const [y, m, d] = value.split("-").map(Number);
   return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
-}
-
-function timeLabel(value: string) {
-  return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 export function ResourcesPanel() {
@@ -122,11 +165,15 @@ function CalendarView() {
   const [rows, setRows] = useState<CalendarRow[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [departmentId, setDepartmentId] = useState("");
-  const [days, setDays] = useState(7);
-  const [windowStart, setWindowStart] = useState(() => startOfDay(new Date()));
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<{ row: CalendarRow; booking: Booking } | null>(null);
-  const [freeOpen, setFreeOpen] = useState(false);
+  const [tip, setTip] = useState<{
+    row: CalendarRow;
+    booking: Booking;
+    left: number;
+    top: number;
+  } | null>(null);
 
   useEffect(() => {
     api<{ items: Department[] }>("/departments")
@@ -134,18 +181,20 @@ function CalendarView() {
       .catch(() => {});
   }, []);
 
-  const windowEnd = useMemo(() => {
-    const d = new Date(windowStart);
-    d.setDate(d.getDate() + days);
-    return d;
-  }, [windowStart, days]);
+  const days = useMemo(
+    () => Array.from({ length: WEEK_LENGTH }, (_, i) => addDays(weekStart, i)),
+    [weekStart],
+  );
+  const weekEnd = days[days.length - 1] ?? weekStart;
+  // The API window is half-open, so it must run to the following midnight.
+  const windowEnd = useMemo(() => addDays(weekStart, WEEK_LENGTH), [weekStart]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api<{ rows: CalendarRow[] }>(
         `/resources/calendar${query({
-          startsAt: windowStart.toISOString(),
+          startsAt: weekStart.toISOString(),
           endsAt: windowEnd.toISOString(),
           ...(departmentId ? { departmentId } : {}),
         })}`,
@@ -156,28 +205,37 @@ function CalendarView() {
     } finally {
       setLoading(false);
     }
-  }, [windowStart, windowEnd, departmentId, toast]);
+  }, [weekStart, windowEnd, departmentId, toast]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const dayList = useMemo(
-    () =>
-      Array.from({ length: days }, (_, i) => {
-        const d = new Date(windowStart);
-        d.setDate(d.getDate() + i);
-        return d;
-      }),
-    [windowStart, days],
-  );
-  const spanMs = Math.max(1, windowEnd.getTime() - windowStart.getTime());
+  useEffect(() => {
+    const hideTip = () => setTip(null);
+    window.addEventListener("scroll", hideTip, { passive: true, capture: true });
+    return () => window.removeEventListener("scroll", hideTip, { capture: true });
+  }, []);
 
-  function shift(delta: number) {
-    const next = new Date(windowStart);
-    next.setDate(next.getDate() + delta);
-    setWindowStart(next);
+  function shiftWeek(delta: number) {
+    setTip(null);
+    setWeekStart((current) => addDays(current, delta * 7));
   }
+
+  function showTip(
+    event: React.MouseEvent<HTMLButtonElement> | React.FocusEvent<HTMLButtonElement>,
+    row: CalendarRow,
+    booking: Booking,
+  ) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = 304;
+    const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
+    const below = rect.bottom + 10;
+    const top = below + 210 > window.innerHeight ? Math.max(12, rect.top - 218) : below;
+    setTip({ row, booking, left, top });
+  }
+
+  const today = new Date();
 
   return (
     <>
@@ -185,29 +243,33 @@ function CalendarView() {
         title="Resource calendar"
         actions={
           <div className="row">
-            <button type="button" className="ghost tiny" onClick={() => shift(-days)}>
+            <button type="button" className="ghost tiny" onClick={() => shiftWeek(-1)}>
               ← Previous
             </button>
             <button
               type="button"
               className="ghost tiny"
-              onClick={() => setWindowStart(startOfDay(new Date()))}
+              onClick={() => {
+                setTip(null);
+                setWeekStart(startOfWeek(new Date()));
+              }}
             >
-              Today
+              This week
             </button>
-            <button type="button" className="ghost tiny" onClick={() => shift(days)}>
+            <button type="button" className="ghost tiny" onClick={() => shiftWeek(1)}>
               Next →
             </button>
           </div>
         }
       >
         <p className="meta">
-          Every booked room, lab and piece of equipment on one timeline. Click a booking to see its
-          details. Other clubs&apos; plans appear as &quot;Reserved&quot; without event details.
+          One week of every booked room, lab and piece of equipment. Monday to Saturday, with the
+          header and resource column pinned while you scroll. Click a booking for the full record.
         </p>
         <p className="timeline-range">
           <strong>
-            {windowStart.toLocaleDateString(undefined, {
+            {weekStart.toLocaleDateString(undefined, {
+              weekday: "short",
               day: "numeric",
               month: "short",
               year: "numeric",
@@ -215,7 +277,8 @@ function CalendarView() {
           </strong>
           <span aria-hidden="true">→</span>
           <strong>
-            {new Date(windowEnd.getTime() - 1).toLocaleDateString(undefined, {
+            {weekEnd.toLocaleDateString(undefined, {
+              weekday: "short",
               day: "numeric",
               month: "short",
               year: "numeric",
@@ -223,21 +286,17 @@ function CalendarView() {
           </strong>
         </p>
         <div className="toolbar">
-          <Field label="Starting">
+          <Field label="Week of (Monday)">
             <input
               type="date"
-              value={toDateInput(windowStart)}
+              value={toDateInput(weekStart)}
               onChange={(e) => {
-                if (e.target.value) setWindowStart(fromDateInput(e.target.value));
+                if (e.target.value) {
+                  setTip(null);
+                  setWeekStart(startOfWeek(fromDateInput(e.target.value)));
+                }
               }}
             />
-          </Field>
-          <Field label="Length">
-            <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
-              <option value={7}>One week</option>
-              <option value={14}>Two weeks</option>
-              <option value={30}>One month</option>
-            </select>
           </Field>
           <Field label="Department">
             <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
@@ -254,7 +313,7 @@ function CalendarView() {
           </button>
         </div>
 
-        <div className="timeline-legend" aria-hidden="true">
+        <div className="timeline-legend">
           <span>
             <i className="timeline-dot requested" /> Requested
           </span>
@@ -271,92 +330,127 @@ function CalendarView() {
         ) : rows.length === 0 ? (
           <Empty>No resource units match this view.</Empty>
         ) : (
-          <div className="scroll-x timeline-scroll">
-            <div className="timeline" style={{ ["--timeline-days" as string]: dayList.length }}>
-              <div className="timeline-head">
-                <div className="timeline-gutter">Resource / unit</div>
-                <div className="timeline-track timeline-day-labels">
-                  {dayList.map((d) => (
-                    <div
-                      key={d.toISOString()}
-                      className="timeline-day-label"
-                      style={{ width: `${100 / dayList.length}%` }}
-                    >
-                      <span>{d.toLocaleDateString(undefined, { weekday: "short" })}</span>
-                      <strong>{d.getDate()}</strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {rows.map((r) => (
-                <div className="timeline-row" key={r.resourceUnitId}>
-                  <div className="timeline-gutter">
-                    <strong>{r.resourceName}</strong>
-                    <span className="meta">{r.unitLabel}</span>
+          <div
+            className="week-scroll"
+            onScroll={() => setTip(null)}
+            aria-label={`Resource bookings for the week of ${toDateInput(weekStart)}`}
+          >
+            <div className="week-grid">
+              <div className="week-corner">Resource / unit</div>
+              {days.map((day) => {
+                const isToday = sameDay(day, today);
+                return (
+                  <div
+                    key={toDateInput(day)}
+                    className={`week-day-head${isToday ? " is-today" : ""}`}
+                  >
+                    <span>{day.toLocaleDateString(undefined, { weekday: "long" })}</span>
+                    <strong>{day.getDate()}</strong>
+                    <small>{day.toLocaleDateString(undefined, { month: "short" })}</small>
                   </div>
-                  <div className="timeline-track">
-                    {dayList.map((d, i) => (
-                      <span
-                        key={d.toISOString()}
-                        className={`timeline-gridline${i === 0 ? " first" : ""}`}
-                        style={{ left: `${(i / dayList.length) * 100}%` }}
-                        aria-hidden="true"
-                      />
-                    ))}
-                    {r.bookings.length === 0 ? (
-                      <span className="timeline-free meta">Free</span>
-                    ) : (
-                      r.bookings.map((b) => {
-                        const start = Math.max(
-                          windowStart.getTime(),
-                          new Date(b.startsAt).getTime(),
-                        );
-                        const end = Math.min(windowEnd.getTime(), new Date(b.endsAt).getTime());
-                        const left = ((start - windowStart.getTime()) / spanMs) * 100;
-                        const width = Math.max(1.2, ((end - start) / spanMs) * 100);
-                        return (
-                          <button
-                            type="button"
-                            key={b.reservationId}
-                            className={`timeline-bar ${b.status.toLowerCase()}`}
-                            style={{ left: `${left}%`, width: `${width}%` }}
-                            title={`${b.title} · ${formatWhen(b.startsAt)} → ${formatWhen(b.endsAt)}`}
-                            onClick={() => setDetail({ row: r, booking: b })}
-                          >
-                            {b.title}
-                          </button>
-                        );
-                      })
-                    )}
+                );
+              })}
+              {rows.map((row) => (
+                <Fragment key={row.resourceUnitId}>
+                  <div className="week-resource">
+                    <strong>{row.resourceName}</strong>
+                    <span className="meta">{row.unitLabel}</span>
+                    <span className={`week-unit-state ${row.unitStatus.toLowerCase()}`}>
+                      {RESOURCE_STATUS_LABELS[row.unitStatus]}
+                    </span>
                   </div>
-                </div>
+                  {days.map((day) => {
+                    const forDay = row.bookings
+                      .map((booking) => ({ booking, portion: dayPortion(booking, day) }))
+                      .filter(
+                        (entry): entry is { booking: Booking; portion: { from: Date; to: Date } } =>
+                          entry.portion !== null,
+                      );
+                    return (
+                      <div
+                        key={`${row.resourceUnitId}-${toDateInput(day)}`}
+                        className={`week-cell${sameDay(day, today) ? " is-today" : ""}`}
+                      >
+                        {forDay.length === 0 ? (
+                          <span className="week-free">Free</span>
+                        ) : (
+                          forDay.map(({ booking, portion }) => (
+                            <button
+                              key={booking.reservationId}
+                              type="button"
+                              className={`week-booking ${booking.status.toLowerCase()}`}
+                              onMouseEnter={(event) => showTip(event, row, booking)}
+                              onFocus={(event) => showTip(event, row, booking)}
+                              onMouseLeave={() => setTip(null)}
+                              onBlur={() => setTip(null)}
+                              onClick={() => {
+                                setTip(null);
+                                setDetail({ row, booking });
+                              }}
+                            >
+                              <span className="wb-time">
+                                {portion.from.toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                                –
+                                {portion.to.toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                              <span className="wb-title">
+                                {booking.eventId ? booking.title : "Reserved"}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    );
+                  })}
+                </Fragment>
               ))}
             </div>
           </div>
         )}
       </Card>
 
-      <Card
-        title="Find a free slot"
-        actions={
-          <button type="button" className="ghost tiny" onClick={() => setFreeOpen((v) => !v)}>
-            {freeOpen ? "Hide" : "Open"}
-          </button>
-        }
-      >
-        {freeOpen ? (
-          <Availability />
-        ) : (
-          <p className="meta">
-            Search an exact window and see which units are free. The calendar above already shows
-            every existing hold; this search answers &quot;can I book this?&quot;.
+      {tip && (
+        <div
+          className="booking-tip"
+          style={{ left: `${tip.left}px`, top: `${tip.top}px` }}
+          role="tooltip"
+        >
+          <div className="bt-top">
+            <strong>{tip.booking.eventId ? tip.booking.title : "Reserved by another club"}</strong>
+            <ReservationBadge status={tip.booking.status as never} />
+          </div>
+          <p className="bt-place">
+            {tip.row.resourceName} · {tip.row.unitLabel}
           </p>
-        )}
-      </Card>
+          <dl className="bt-kv">
+            <dt>When</dt>
+            <dd>
+              {formatWhen(tip.booking.startsAt)} → {formatWhen(tip.booking.endsAt)}
+            </dd>
+            <dt>Length</dt>
+            <dd>{durationLabel(durationMinutes(tip.booking))}</dd>
+            <dt>Club</dt>
+            <dd>{tip.booking.clubName ?? "Another club"}</dd>
+            {tip.booking.eventStatus && (
+              <>
+                <dt>Event</dt>
+                <dd>{plainStatus(tip.booking.eventStatus)}</dd>
+              </>
+            )}
+          </dl>
+          <span className="bt-hint">Click for the full record</span>
+        </div>
+      )}
 
       <Modal
         open={detail !== null}
-        title={detail?.booking.title ?? "Booking"}
+        title={detail?.booking.eventId ? detail.booking.title : "Reserved booking"}
         description={detail ? `${detail.row.resourceName} · ${detail.row.unitLabel}` : undefined}
         onClose={() => setDetail(null)}
         footer={
@@ -367,136 +461,52 @@ function CalendarView() {
       >
         {detail && (
           <div className="stack">
+            <div className="booking-detail-top">
+              <ReservationBadge status={detail.booking.status as never} />
+              <span className="badge">{durationLabel(durationMinutes(detail.booking))}</span>
+              <span className="badge">{detail.row.unitLabel}</span>
+            </div>
             <dl className="kv">
-              <dt>Status</dt>
-              <dd>
-                <ReservationBadge status={detail.booking.status as never} />
-              </dd>
               <dt>Starts</dt>
               <dd>{formatWhen(detail.booking.startsAt)}</dd>
               <dt>Ends</dt>
               <dd>{formatWhen(detail.booking.endsAt)}</dd>
-              <dt>Duration</dt>
+              <dt>Length</dt>
+              <dd>{durationLabel(durationMinutes(detail.booking))}</dd>
+              <dt>Resource</dt>
               <dd>
-                {Math.max(
-                  1,
-                  Math.round(
-                    (new Date(detail.booking.endsAt).getTime() -
-                      new Date(detail.booking.startsAt).getTime()) /
-                      60_000,
-                  ),
-                )}{" "}
-                minutes
+                {detail.row.resourceName}
+                {detail.row.capacity !== null ? ` · seats ${detail.row.capacity}` : ""}
               </dd>
+              <dt>Resource state</dt>
+              <dd>
+                {RESOURCE_STATUS_LABELS[detail.row.resourceStatus]} · unit{" "}
+                {RESOURCE_STATUS_LABELS[detail.row.unitStatus].toLowerCase()}
+              </dd>
+              <dt>Club</dt>
+              <dd>{detail.booking.clubName ?? "Another club"}</dd>
               <dt>Event</dt>
-              <dd>{detail.booking.eventId ? detail.booking.eventId : "Details withheld"}</dd>
+              <dd>
+                {detail.booking.eventId
+                  ? `${detail.booking.title} · ${plainStatus(detail.booking.eventStatus ?? "")}`
+                  : "Details withheld"}
+              </dd>
             </dl>
-            {detail.booking.eventId && (
+            {detail.booking.eventId ? (
               <p className="meta">
-                Open the event from Events to change or release this booking. Reservations are only
-                changed through the event that owns them.
+                This hold belongs to an event. Open it from Events to change or release the booking
+                — reservations are only edited through the event that owns them.
+              </p>
+            ) : (
+              <p className="meta">
+                This hold belongs to another club that you do not oversee, so the event details stay
+                private. The time and unit are still blocked.
               </p>
             )}
           </div>
         )}
       </Modal>
     </>
-  );
-}
-
-function Availability() {
-  const toast = useToast();
-  const [items, setItems] = useState<AvailabilityItem[]>([]);
-  const [win, setWin] = useState(() => defaultWindow(7));
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [searched, setSearched] = useState(false);
-
-  const search = useCallback(
-    async (nextOffset = 0) => {
-      setBusy(true);
-      try {
-        const page = await api<Page<AvailabilityItem>>(
-          `/resources/availability${query({
-            startsAt: fromLocalInput(win.startsAt),
-            endsAt: fromLocalInput(win.endsAt),
-            limit: PAGE_SIZE,
-            offset: nextOffset,
-          })}`,
-        );
-        setItems(page.items);
-        setHasMore(page.hasMore ?? false);
-        setOffset(nextOffset);
-        setSearched(true);
-      } catch (err) {
-        toast.err(errorMessage(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [win, toast],
-  );
-
-  return (
-    <div className="stack-tight">
-      <div className="toolbar">
-        <Field label="From">
-          <input
-            type="datetime-local"
-            value={win.startsAt}
-            onChange={(e) => setWin({ ...win, startsAt: e.target.value })}
-          />
-        </Field>
-        <Field label="To">
-          <input
-            type="datetime-local"
-            value={win.endsAt}
-            onChange={(e) => setWin({ ...win, endsAt: e.target.value })}
-          />
-        </Field>
-        <button type="button" disabled={busy} onClick={() => void search(0)}>
-          {busy ? "Searching…" : "Search free slots"}
-        </button>
-      </div>
-
-      {!searched ? (
-        <p className="meta">Choose a window and search to see which units are free.</p>
-      ) : items.length === 0 ? (
-        <Empty>No resource units match this window.</Empty>
-      ) : (
-        <>
-          <div className="availability-grid">
-            {items.map((i) => (
-              <div
-                className={`availability-card${i.available ? " free" : " busy"}`}
-                key={i.resourceUnitId}
-              >
-                <div>
-                  <strong>{i.resourceName}</strong>
-                  <span className="meta">{i.unitLabel}</span>
-                </div>
-                <span className={`badge ${i.available ? "good" : "bad"}`}>
-                  {i.available ? "Free" : "Busy"}
-                </span>
-                <span className="meta">
-                  {i.busyBlocks.length === 0
-                    ? "No holds in this window"
-                    : `${i.busyBlocks.length} hold${i.busyBlocks.length === 1 ? "" : "s"}`}
-                </span>
-              </div>
-            ))}
-          </div>
-          <Pager
-            offset={offset}
-            limit={PAGE_SIZE}
-            count={items.length}
-            hasMore={hasMore}
-            onChange={(o) => void search(o)}
-          />
-        </>
-      )}
-    </div>
   );
 }
 

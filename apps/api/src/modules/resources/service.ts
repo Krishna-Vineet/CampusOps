@@ -439,7 +439,9 @@ export async function calendar(
         .select({
           reservation: resourceReservations,
           eventTitle: events.title,
+          eventStatus: events.status,
           eventClubId: events.clubId,
+          clubName: clubs.name,
           clubDepartmentId: clubs.departmentId,
         })
         .from(resourceReservations)
@@ -463,7 +465,10 @@ export async function calendar(
     rows: units.map(({ unit, resource }) => ({
       resourceUnitId: unit.id,
       unitLabel: unit.label,
+      unitStatus: unit.status,
       resourceName: resource.name,
+      resourceStatus: resource.status,
+      capacity: resource.capacity,
       bookings: rows
         .filter((r) => r.reservation.resourceUnitId === unit.id)
         .map((r) => {
@@ -480,6 +485,8 @@ export async function calendar(
             endsAt: r.reservation.endsAt,
             status: r.reservation.status,
             eventId: canSeeDetail ? r.reservation.eventId : null,
+            eventStatus: canSeeDetail ? r.eventStatus : null,
+            clubName: canSeeDetail ? r.clubName : null,
             title: canSeeDetail ? r.eventTitle : "Reserved",
           };
         }),

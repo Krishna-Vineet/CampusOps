@@ -345,7 +345,9 @@ export const operations: Operation[] = [
     method: "get",
     path: "/search",
     tag: "Meta",
-    summary: "Search events, clubs and (for admins) people",
+    summary: "Search events in your management scope, clubs, and (for admins) people with roles",
+    description:
+      "Admin event results cover the whole institution, HOD/Dean results their departments, and club members their clubs — drafts included. People include the console role: Admin, HOD, Faculty, Coordinator, Student or Outsider.",
     auth: true,
     query: searchQuerySchema,
   },
