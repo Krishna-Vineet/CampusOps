@@ -38,9 +38,9 @@ Do not upgrade individual `expo-*` packages by hand; use `npx expo install --fix
 
 | Variable | Where | Meaning |
 |---|---|---|
-| `EXPO_PUBLIC_API_URL` | `.env.mobile` | Absolute API origin, e.g. `https://api.example.com` (no `/api/v1`); for a phone use the PC LAN IPv4 plus the API port. |
-| `API_PORT` | `.env.web` and preview proxy | Local API port shared by the Vite and browser-preview proxies. |
-| `PORT` | `.env.api` | API listen port; make it match `API_PORT` and the port in the mobile URL. |
+| `EXPO_PUBLIC_API_URL` | `.env.local` | Absolute API origin, e.g. `https://api.example.com` (no `/api/v1`); for a phone use the PC LAN IPv4 plus the API port. |
+| `API_PORT` | `.env.local` | Optional Vite/browser-preview proxy override; falls back to `PORT`, 8787, then 8087. |
+| `PORT` | `.env.local` | API listen port; keep the mobile URL pointed at the same port. |
 | `MOBILE_SCHEME` | app config | Deep-link scheme, default `campusops`. |
 
 ## Run
@@ -54,7 +54,7 @@ bun run dev:web
 bun run build:mobile:web
 bun run preview:mobile
 
-# Native development (configured by .env.mobile)
+# Native development (configured by EXPO_PUBLIC_API_URL in .env.local)
 bun run dev:mobile
 ```
 

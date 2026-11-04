@@ -13,31 +13,30 @@ type Challenge = { challengeId: string; demoOtp?: string; delivery: string; expi
 
 type Mode = "login" | "forgot" | "code";
 
-const MODE_COPY: Record<Mode, { tab: string; title: string; subtitle: string }> = {
+const MODE_COPY: Record<Mode, { title: string; subtitle: string; submit: string }> = {
   login: {
-    tab: "Sign in",
     title: "Welcome back.",
-    subtitle: "Use the staff email your institution has on record.",
+    subtitle: "Sign in with the college email your institution has on record.",
+    submit: "Sign in to the console",
   },
   forgot: {
-    tab: "Reset password",
-    title: "Reset a password.",
-    subtitle:
-      "We will send a six-digit code. New staff use the same form to activate a provisioned account.",
+    title: "Reset your password.",
+    subtitle: "Enter your college email and we will send a six-digit code.",
+    submit: "Send OTP",
   },
   code: {
-    tab: "Have a code",
-    title: "Enter your code.",
-    subtitle: "The code is valid for a short window and can be used once.",
+    title: "Enter your reset code.",
+    subtitle: "Use the code we emailed you, then choose a new password.",
+    submit: "Reset password",
   },
 };
 
 /**
  * Staff sign-in for the management website.
  *
- * Students do not register here: college and outsider students register in the
- * mobile app. Staff accounts are provisioned without a password; they request a
- * setup/reset code themselves through Forgot password.
+ * One decision at a time: the reset form only appears after the visitor asks for
+ * it, and the code field only appears after the code request succeeds. Students do
+ * not register here; they use the mobile app.
  */
 export function AuthPanel({
   config,
@@ -57,12 +56,18 @@ export function AuthPanel({
   const [newPassword, setNewPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
 
-  function switchMode(next: Mode) {
-    setMode(next);
+  function resetTransientState() {
     setError(null);
     setNotice(null);
     setOtp("");
     setNewPassword("");
+    setShowPw(false);
+  }
+
+  function goTo(next: Mode) {
+    resetTransientState();
+    if (next !== "code") setChallenge(null);
+    setMode(next);
   }
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -83,11 +88,9 @@ export function AuthPanel({
         const r = await api<{ verification?: Challenge }>("/auth/forgot-password", {
           email: normalized,
         });
-        if (r.verification) {
-          setChallenge(r.verification);
-        }
-        setNotice("If that account exists, a reset code has been sent.");
+        if (r.verification) setChallenge(r.verification);
         setMode("code");
+        setNotice("If that account exists, a reset code has been sent.");
       } else {
         // One endpoint serves both cases: a PASSWORD_RESET code resets an existing
         // password, a STAFF_SETUP code activates a new staff account and sets it.
@@ -96,11 +99,12 @@ export function AuthPanel({
           otp: otp.trim(),
           newPassword,
         });
-        setNotice("Password set. Sign in with your new password.");
         setPassword("");
-        setNewPassword("");
         setOtp("");
+        setNewPassword("");
+        setChallenge(null);
         setMode("login");
+        setNotice("Password set. Sign in with your new password.");
       }
     } catch (err) {
       setError(errorMessage(err));
@@ -109,42 +113,24 @@ export function AuthPanel({
     }
   }
 
-  const labels: Record<Mode, string> = {
-    login: "Sign in to the console",
-    forgot: "Send me a code",
-    code: "Set password & continue",
-  };
   const copy = MODE_COPY[mode];
 
   return (
     <Card title={copy.title} subtitle={copy.subtitle}>
-      <div className="subtabs" role="tablist" aria-label="Sign-in options">
-        {(["login", "forgot", "code"] as Mode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            role="tab"
-            aria-selected={mode === m}
-            className={mode === m ? "active" : "ghost"}
-            onClick={() => switchMode(m)}
-          >
-            {MODE_COPY[m].tab}
-          </button>
-        ))}
-      </div>
-
       <form className="form" onSubmit={submit}>
-        <Field label="College email">
-          <input
-            name="email"
-            type="email"
-            required
-            autoComplete="username"
-            placeholder="you@institution.edu"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </Field>
+        {mode !== "code" && (
+          <Field label="College email">
+            <input
+              name="email"
+              type="email"
+              required
+              autoComplete="username"
+              placeholder="you@institution.edu"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </Field>
+        )}
 
         {mode === "login" && (
           <Field label="Password">
@@ -172,43 +158,42 @@ export function AuthPanel({
         )}
 
         {mode === "code" && (
-          <Field label="6-digit code" hint="Check the inbox for your staff email.">
-            <input
-              required
-              inputMode="numeric"
-              pattern="\d{6}"
-              maxLength={6}
-              autoComplete="one-time-code"
-              placeholder="000000"
-              className="otp-input"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-            />
-          </Field>
-        )}
-
-        {mode === "code" && (
-          <Field label="New password" hint="At least 10 characters. Longer is better.">
-            <span className="input-group">
+          <>
+            <Field label="6-digit code" hint="Check the inbox for your college email.">
               <input
-                type={showPw ? "text" : "password"}
                 required
-                minLength={10}
-                autoComplete="new-password"
-                aria-label="New password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                inputMode="numeric"
+                pattern="\d{6}"
+                maxLength={6}
+                autoComplete="one-time-code"
+                placeholder="000000"
+                className="otp-input"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
               />
-              <button
-                type="button"
-                className="input-reveal"
-                aria-label={showPw ? "Hide password" : "Show password"}
-                onClick={() => setShowPw((v) => !v)}
-              >
-                <Icon name={showPw ? "eye-off" : "eye"} size={15} />
-              </button>
-            </span>
-          </Field>
+            </Field>
+            <Field label="New password" hint="At least 10 characters. Longer is better.">
+              <span className="input-group">
+                <input
+                  type={showPw ? "text" : "password"}
+                  required
+                  minLength={10}
+                  autoComplete="new-password"
+                  aria-label="New password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="input-reveal"
+                  aria-label={showPw ? "Hide password" : "Show password"}
+                  onClick={() => setShowPw((v) => !v)}
+                >
+                  <Icon name={showPw ? "eye-off" : "eye"} size={15} />
+                </button>
+              </span>
+            </Field>
+          </>
         )}
 
         <button type="submit" disabled={busy}>
@@ -218,7 +203,7 @@ export function AuthPanel({
             </>
           ) : (
             <>
-              {labels[mode]} <Icon name="arrow-right" size={15} />
+              {copy.submit} <Icon name="arrow-right" size={15} />
             </>
           )}
         </button>
@@ -238,9 +223,34 @@ export function AuthPanel({
       <SuccessNote message={notice} />
 
       {mode === "login" && (
+        <div className="auth-alt">
+          <button type="button" className="ghost" onClick={() => goTo("forgot")}>
+            Forgot password?
+          </button>
+        </div>
+      )}
+      {mode === "forgot" && (
+        <div className="auth-alt">
+          <button type="button" className="ghost" onClick={() => goTo("login")}>
+            Back to sign in
+          </button>
+        </div>
+      )}
+      {mode === "code" && (
+        <div className="auth-alt">
+          <button type="button" className="ghost" onClick={() => goTo("forgot")}>
+            Send a new code
+          </button>
+          <button type="button" className="ghost" onClick={() => goTo("login")}>
+            Back to sign in
+          </button>
+        </div>
+      )}
+
+      {mode === "login" && (
         <p className="hint">
           No account yet? Staff accounts are created by an administrator, then activated with{" "}
-          <strong>Reset password</strong>. Students should use the CampusOps mobile app.
+          <strong>Forgot password?</strong>. Students should use the CampusOps mobile app.
         </p>
       )}
       {mode === "forgot" && (

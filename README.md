@@ -62,7 +62,7 @@ The web dev server proxies `/api` to the API. Browser code uses relative URLs on
 
 ## Environment groups
 
-Local app env files are separate: `.env.api` holds server secrets, `.env.web` holds only the local API proxy port, and `.env.mobile` holds the public Expo API URL. Root scripts explicitly load the correct file for each app.
+Local development uses one root `.env.local`: server secrets stay server-side, and Vite exposes only `VITE_*` variables to the browser. The API port is `PORT`; the web proxy follows it automatically.
 
 | Group | Variables | Notes |
 |---|---|---|

@@ -41,21 +41,19 @@ sudo -u postgres psql -c "CREATE DATABASE campusops_dev OWNER campusops;"
 sudo -u postgres psql -c "CREATE DATABASE campusops_test OWNER campusops;"
 ```
 
-## 4. Create app-specific env files
+## 4. Create the local env file
 
-From the repository root, copy the three committed templates (PowerShell):
+From the repository root (PowerShell):
 
 ```powershell
-Copy-Item .env.api.example .env.api
-Copy-Item .env.web.example .env.web
-Copy-Item .env.mobile.example .env.mobile
+Copy-Item .env.example .env.local
 ```
 
-Fill `.env.api` with the database URLs and two different random secrets (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`). For local demo email, set `DEMO_MODE=true`; the API env template includes the remaining local defaults. Keep API secrets only in `.env.api`.
+Fill `.env.local` with the database URLs and two different random secrets (`JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`). For local demo email, set `DEMO_MODE=true`; the template includes the remaining local defaults.
 
-Set the **same API port** in `.env.api` (`PORT`), `.env.web` (`API_PORT`), and `.env.mobile` (`EXPO_PUBLIC_API_URL`). For a phone, use your PC's LAN IPv4 in the mobile URL, for example `http://192.168.1.41:8087`—not localhost. The API host must be allowed through Windows Firewall.
+`PORT` is the API port (8787 by default). The Vite proxy follows `API_PORT`, then `PORT`, and automatically checks 8787 and 8087 at startup, so a single file is enough. For a phone, set `EXPO_PUBLIC_API_URL` to your PC's LAN IPv4, for example `http://192.168.1.41:8787` — not localhost. The API host must be allowed through Windows Firewall.
 
-Bun does not need to guess which env file to load: each root command explicitly selects its app file and disables automatic dotenv loading. More details: [environment.md](environment.md).
+Bun loads `.env.local` automatically for every root command, and child processes inherit it. More details: [environment.md](environment.md).
 
 ## 5. Migrate
 
@@ -71,9 +69,9 @@ The migration runner applies all numbered migrations in order. Demo seed data is
 Open terminals at the repository root:
 
 ```powershell
-bun run dev:api       # API on the PORT from .env.api; normal mode, no --hot
-bun run dev:web       # Management website on :5173; proxy port from .env.web
-bun run dev:mobile    # Expo Go/LAN; API origin from .env.mobile
+bun run dev:api       # API on the PORT from .env.local; normal mode, no --hot
+bun run dev:web       # Management website on :5173; proxy follows API_PORT/PORT
+bun run dev:mobile    # Expo Go/LAN; API origin from EXPO_PUBLIC_API_URL
 ```
 
 The API runs without Bun hot reload, so Ctrl+C stops the process normally. Use Node.js 22.13+ for Expo/Metro.

@@ -19,9 +19,7 @@ Latest phase record: [Phase 6 report](phase6-report.md) · [Phase 6 critic audit
 
 ```powershell
 bun install
-Copy-Item .env.api.example .env.api
-Copy-Item .env.web.example .env.web
-Copy-Item .env.mobile.example .env.mobile
+Copy-Item .env.example .env.local
 # Edit app-specific env files, then:
 bun run db:migrate
 bun run dev:api

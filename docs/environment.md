@@ -2,25 +2,22 @@
 
 ## Keep local environments separate
 
-Use a separate ignored env file for each app. Root scripts explicitly load only the selected file with Bun's `--no-env-file --env-file=...`; they do not depend on Bun's automatic dotenv lookup.
-
-| File | Used by | Put here |
-|---|---|---|
-| `.env.api` | API, migrations, API tests and admin bootstrap | Database URLs, JWT secrets, email/provider and private storage settings |
-| `.env.web` | Vite dev/build | `API_PORT` for the local `/api` proxy; no server secrets |
-| `.env.mobile` | Expo native/mobile | `EXPO_PUBLIC_API_URL` only; this value is embedded in the app and is public |
-
-Copy the templates once from the repo root:
+Local development uses one ignored file at the repository root: `.env.local`. Bun loads it for every root command, and the child API, Vite and Expo processes inherit it.
 
 ```powershell
-Copy-Item .env.api.example .env.api
-Copy-Item .env.web.example .env.web
-Copy-Item .env.mobile.example .env.mobile
+Copy-Item .env.example .env.local
 ```
 
-Update all three port values if you change the API port. For a phone, set `EXPO_PUBLIC_API_URL` to `http://<PC-LAN-IPv4>:<API-port>`—never localhost. The API already binds to `0.0.0.0`.
+| Variable | Used by | Put here |
+|---|---|---|
+| `DATABASE_URL`, `JWT_ACCESS_SECRET`, `REFRESH_TOKEN_PEPPER`, provider and storage settings | API, migrations, tests, bootstrap | Local secrets, never committed |
+| `PORT` | API listen port (8787 by default) | The web proxy follows it automatically |
+| `API_PORT` | Vite dev proxy | Optional override when the API runs on another port |
+| `EXPO_PUBLIC_API_URL` | Expo native/mobile | Absolute API origin; this value is embedded in the app and is public |
 
-The website and mobile app must never receive database URLs, JWT secrets, Brevo keys or S3 keys. Production values belong in Render/Vercel/EAS environment settings, not local env files.
+If you change the API port, change `PORT`; the Vite proxy uses `API_PORT`, then `PORT`, then tries 8787 and 8087. For a phone, set `EXPO_PUBLIC_API_URL` to `http://<PC-LAN-IPv4>:<API-port>` — never localhost. The API already binds to `0.0.0.0`.
+
+Vite only exposes `VITE_*` variables to the browser, so database URLs, JWT secrets, Brevo keys and S3 keys stay server-side. Production values belong in Render/Vercel/EAS environment settings, not local files.
 
 
 ## Required for every environment
@@ -52,7 +49,7 @@ Invalid combinations fail fast at startup with a message naming the variable (fo
 
 ## Website variables (Vercel)
 
-The website uses **relative URLs** (`/api/v1/...`). `vercel.json` rewrites `/api/*` and `/health/*` to your Render API, so the browser sees one origin and the httpOnly refresh cookie works. Production needs no client-side API variable; `.env.web` only configures the local Vite proxy port. Do not put secrets in `VITE_*`.
+The website uses **relative URLs** (`/api/v1/...`). `vercel.json` rewrites `/api/*` and `/health/*` to your Render API, so the browser sees one origin and the httpOnly refresh cookie works. Production needs no client-side API variable; `API_PORT` only configures the local Vite proxy. Do not put secrets in `VITE_*`.
 
 If you instead host the API on a different origin without a rewrite, set `WEB_ORIGIN` on the API to the website origin and be aware that third-party cookie blocking can break refresh; the rewrite approach is the supported one.
 
@@ -60,7 +57,7 @@ If you instead host the API on a different origin without a rewrite, set `WEB_OR
 
 | Variable | Where | Meaning |
 |---|---|---|
-| `EXPO_PUBLIC_API_URL` | `.env.mobile` at build time | Absolute API origin, e.g. `https://campusops-api.onrender.com` (no `/api/v1`). For a phone on local Wi-Fi, use the PC's LAN IPv4 and API port. |
+| `EXPO_PUBLIC_API_URL` | `.env.local` at build time | Absolute API origin, e.g. `https://campusops-api.onrender.com` (no `/api/v1`). For a phone on local Wi-Fi, use the PC's LAN IPv4 and API port. |
 | `MOBILE_SCHEME` | app config | Deep-link scheme (`campusops`). |
 | `API_PROXY_TARGET`, `PORT` | `serve-preview.mjs` only | Browser review preview proxy; not part of native builds. |
 

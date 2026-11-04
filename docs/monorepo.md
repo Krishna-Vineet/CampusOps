@@ -53,9 +53,9 @@ Root scripts delegate with `bun run --filter <workspace> <script>`:
 
 | Command | What runs |
 |---|---|
-| `bun run dev:api` | `.env.api` → `apps/api` → `bun run src/index.ts` (no hot reload) |
-| `bun run dev:web` | `.env.web` → `apps/web` → Vite (proxy port from `API_PORT`) |
-| `bun run dev:mobile` | `.env.mobile` → `apps/mobile` → Expo LAN server |
+| `bun run dev:api` | root `.env.local` → `apps/api` → `bun run src/index.ts` (no hot reload) |
+| `bun run dev:web` | root `.env.local` → `apps/web` → Vite (proxy follows `API_PORT`, then `PORT`) |
+| `bun run dev:mobile` | root `.env.local` → `apps/mobile` → Expo LAN server |
 | `bun run db:migrate / db:seed / db:check` | `apps/api` DB scripts |
 | `bun run admin:bootstrap` | one-time first Admin creation (production) |
 | `bun run test` | `apps/api` → `bun test` (uses `TEST_DATABASE_URL`) |
@@ -65,7 +65,7 @@ Root scripts delegate with `bun run --filter <workspace> <script>`:
 | `bun run build:mobile:web` | Expo static web export → `apps/mobile/dist` |
 | `bun run e2e:*` | Playwright suites in `e2e/` |
 
-You can also run a workspace script from its app directory; the package scripts explicitly load the corresponding root `.env.api`, `.env.web`, or `.env.mobile` file.
+You can also run a workspace script from its app directory; run root commands instead so the root `.env.local` is loaded consistently.
 
 ## TypeScript path mapping
 

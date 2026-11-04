@@ -2418,6 +2418,18 @@ dl.kv dd {
   margin-top: 4px;
   font-size: 13px;
 }
+.auth-alt {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.auth-alt button {
+  font-size: 12.5px;
+  min-height: 32px;
+  padding: 5px 10px;
+}
 .auth-panel .hint {
   margin-top: 16px;
   padding-top: 14px;

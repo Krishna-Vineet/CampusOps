@@ -6,9 +6,9 @@
 |---|---|
 | `bun: command not found` | Open a new shell after install, or add `~/.bun/bin` to PATH. |
 | Expo CLI says Node is too old | Mobile needs Node ≥22.13. `nvm use 22.23.4` (see `apps/mobile/.node-version`). The API itself runs on Bun. |
-| `Invalid environment: …` at API startup | A variable is missing or inconsistent. The message names the key (e.g. `STORAGE_MODE=s3 requires S3_BUCKET`). Compare with `.env.api.example`. |
-| API starts but website shows "API unreachable" | Check `PORT` in `.env.api` matches `API_PORT` in `.env.web`; Vite proxies to that local API port. |
-| Env changes ignored | Root scripts explicitly load `.env.api`, `.env.web`, or `.env.mobile`. Make edits in the matching file and restart the app. |
+| `Invalid environment: …` at API startup | A variable is missing or inconsistent. The message names the key (e.g. `STORAGE_MODE=s3 requires S3_BUCKET`). Compare with `.env.example`. |
+| `http proxy error … ECONNREFUSED` / website 500 | The API process is not listening on the port Vite chose. The Vite terminal prints `[campusops] API proxy → …`; make sure the API is running (`bun run dev:api`) and, if needed, set `API_PORT` in `.env.local` to its port. The proxy now probes `API_PORT`, `PORT`, 8787 and 8087 and returns a readable `502 API_UNAVAILABLE` instead of a bare 500. |
+| Env changes ignored | Root commands load the root `.env.local`. Restart `dev:api` and `dev:web` after editing it. |
 
 ## Database
 
@@ -16,7 +16,7 @@
 |---|---|
 | `DATABASE_URL … is required` | Set it (local) or add it in Render. Migrations use the direct URL; runtime prefers the pooled one. |
 | `relation … does not exist` | Run `bun run db:migrate`. |
-| Tests fail on fixture rows | Run the API test setup with its test database configured in `.env.api`; do not point test fixtures at production. |
+| Tests fail on fixture rows | Run the API test setup with `TEST_DATABASE_URL` in `.env.local`; do not point test fixtures at production. |
 | Neon "prepared statement already exists" | Use the pooled URL for runtime; the client disables prepared statements for `-pooler` hosts automatically. |
 | `password authentication failed` | Role/password mismatch; recreate the local role as in getting-started. |
 
@@ -36,7 +36,7 @@
 |---|---|
 | Website is blank after deploy | Check `vercel.json` rewrites point at your Render host; open devtools Network for failing `/api` calls. |
 | Mobile native app: "Set EXPO_PUBLIC_API_URL…" | Native builds need the absolute API origin at build time. |
-| Phone cannot reach the API | Set `EXPO_PUBLIC_API_URL=http://<PC-LAN-IPv4>:<PORT>` in `.env.mobile`; match `PORT` from `.env.api`, keep both devices on the same Wi-Fi, and allow that inbound port through Windows Firewall. Test `/health/live` from the phone browser. |
+| Phone cannot reach the API | Set `EXPO_PUBLIC_API_URL=http://<PC-LAN-IPv4>:<PORT>` in `.env.local`; keep both devices on the same Wi-Fi and allow that inbound port through Windows Firewall. Test `/health/live` from the phone browser. |
 | Metro killed / out of memory | Use the static preview (`build:mobile:web` + `preview:mobile`) or `expo start --max-workers 1`. |
 | Camera does not open in browser preview | Browsers require HTTPS or localhost for camera; use the paste-code path for review, real camera on a device. |
 | QR shows "switched off" | The coordinator switched that QR off, or its window/date is not active. This is intended. |
