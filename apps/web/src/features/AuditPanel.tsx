@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pager, useToast } from "../components/feedback";
+import { Modal, Pager, useToast } from "../components/feedback";
 import { Card, Empty, Field, SkeletonRows, formatWhen } from "../components/ui";
 import { type Page, api, errorMessage, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
@@ -26,7 +26,7 @@ export function AuditPanel() {
   const [entityType, setEntityType] = useState("");
   const [applied, setApplied] = useState({ action: "", entityType: "" });
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [selected, setSelected] = useState<AuditRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,39 +130,12 @@ export function AuditPanel() {
                     </td>
                     <td className="meta">{row.requestId?.slice(0, 12) ?? "—"}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="ghost tiny"
-                        aria-expanded={expanded === row.id}
-                        onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      >
-                        {expanded === row.id ? "Hide" : "Details"}
+                      <button type="button" className="ghost tiny" onClick={() => setSelected(row)}>
+                        Details
                       </button>
                     </td>
                   </tr>
                 ))}
-                {expanded && (
-                  <tr>
-                    <td colSpan={6}>
-                      <div className="grid-2">
-                        <pre className="audit-json">
-                          {JSON.stringify(
-                            rows.find((r) => r.id === expanded)?.before ?? null,
-                            null,
-                            2,
-                          )}
-                        </pre>
-                        <pre className="audit-json">
-                          {JSON.stringify(
-                            rows.find((r) => r.id === expanded)?.after ?? null,
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      </div>
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -175,6 +148,48 @@ export function AuditPanel() {
           />
         </>
       )}
+
+      <Modal
+        open={selected !== null}
+        size="lg"
+        title={selected?.action ?? "Audit entry"}
+        description={
+          selected ? `${selected.entityType} · ${formatWhen(selected.createdAt)}` : undefined
+        }
+        onClose={() => setSelected(null)}
+        footer={
+          <button type="button" className="ghost" onClick={() => setSelected(null)}>
+            Close
+          </button>
+        }
+      >
+        {selected && (
+          <div className="stack">
+            <dl className="kv">
+              <dt>Actor</dt>
+              <dd>
+                {selected.actor ? `${selected.actor.fullName} · ${selected.actor.email}` : "System"}
+              </dd>
+              <dt>Entity</dt>
+              <dd>{selected.entityId ?? "—"}</dd>
+              <dt>Request</dt>
+              <dd>{selected.requestId ?? "—"}</dd>
+              <dt>Event</dt>
+              <dd>{selected.eventId ?? "—"}</dd>
+            </dl>
+            <div className="grid-2">
+              <div>
+                <h4>Before</h4>
+                <pre className="audit-json">{JSON.stringify(selected.before ?? null, null, 2)}</pre>
+              </div>
+              <div>
+                <h4>After</h4>
+                <pre className="audit-json">{JSON.stringify(selected.after ?? null, null, 2)}</pre>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
     </Card>
   );
 }
