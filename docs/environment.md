@@ -25,6 +25,7 @@ Vite only exposes `VITE_*` variables to the browser, so database URLs, JWT secre
 | Variable | Example | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://… neon.tech/campusops?sslmode=require` | Direct connection. Used by migrations/seed/bootstrap. |
+| `AUTO_MIGRATE` | `true` locally | Apply pending migrations before the API starts. On outside production; production should run `bun run db:migrate` as a deploy step. |
 | `JWT_ACCESS_SECRET` | 64 hex chars | `openssl rand -hex 32`. Signs 15-min access tokens. |
 | `REFRESH_TOKEN_PEPPER` | 64 hex chars | Different value. Hashes refresh tokens at rest. |
 

@@ -43,6 +43,10 @@ const envSchema = z
     DATABASE_DIRECT_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
     TEST_DATABASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
     DB_POOL_MAX: z.coerce.number().int().min(1).max(20).default(5),
+    // Apply pending SQL migrations before the server starts. On by default for
+    // local development; production runs migrations as an explicit deploy step
+    // (or sets AUTO_MIGRATE=true when it has a direct, non-pooled connection).
+    AUTO_MIGRATE: boolFromEnv(process.env.NODE_ENV !== "production"),
     // Reserved for a future Neon Auth integration. CampusOps currently uses its own auth.
     NEON_AUTH_BASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
 

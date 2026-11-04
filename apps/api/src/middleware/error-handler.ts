@@ -6,6 +6,7 @@ import {
   isForeignKeyViolation,
   isUniqueViolation,
   pgCode,
+  pgDetail,
 } from "../utils/db-error";
 import { log } from "../utils/logger";
 import { fail } from "../utils/response";
@@ -37,6 +38,13 @@ function databaseError(err: unknown): ApiError | null {
       "DATABASE_UNAVAILABLE",
       "The database is briefly unavailable. Retry shortly.",
     );
+  // The code was updated before the database was. That is an operator problem,
+  // not an unexplained 500: name the fix so the person running the server can act.
+  if (code === "42703" || code === "42P01" || code === "42883")
+    return new ApiError(
+      "DATABASE_SCHEMA_OUT_OF_DATE",
+      "The service database is missing a required update. An administrator must run the pending migrations and restart the API.",
+    );
   return null;
 }
 
@@ -51,6 +59,8 @@ export const errorHandler: ErrorHandler = (err, c) => {
     method: c.req.method,
     path: c.req.path,
     error: err instanceof Error ? err.message : String(err),
+    dbCode: pgCode(err),
+    dbDetail: pgDetail(err),
     stack: err instanceof Error ? err.stack : undefined,
   });
   return fail(c, new ApiError("INTERNAL_ERROR", "An unexpected error occurred."));

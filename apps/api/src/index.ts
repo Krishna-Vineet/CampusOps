@@ -1,11 +1,39 @@
 import { createApp } from "./app";
 import { env } from "./config/env";
 import { closeDb, getDb } from "./db/client";
+import { runMigrations } from "./db/migrate";
 import { startJobs, stopJobs } from "./jobs";
 import { maintenanceTick } from "./middleware/maintenance";
 import { log } from "./utils/logger";
 
 const app = createApp();
+
+// Refuse to serve against a schema that does not match the code. The runner is
+// idempotent and advisory-locked, so restarting an already-migrated database is
+// cheap; a fresh checkout applies the missing SQL before the first request.
+if (env.AUTO_MIGRATE) {
+  if (env.DATABASE_URL || env.DATABASE_URL_POOLED || env.DATABASE_DIRECT_URL) {
+    try {
+      const { applied, skipped } = await runMigrations({ quiet: true });
+      log.info("database_migrations_checked", {
+        applied: applied.length,
+        alreadyPresent: skipped,
+        files: applied,
+      });
+    } catch (err) {
+      log.error("database_migration_failed", {
+        error: err instanceof Error ? err.message : String(err),
+        cause: err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined,
+        fix: "Check the database URL and run `bun run db:migrate` once from the repository root.",
+      });
+      process.exit(1);
+    }
+  } else {
+    log.warn("database_migrations_skipped", {
+      reason: "No database URL is configured; starting in degraded mode.",
+    });
+  }
+}
 
 const server = Bun.serve({
   port: env.PORT,
