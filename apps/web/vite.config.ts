@@ -19,7 +19,7 @@ export default defineConfig(({ command }) => {
       allowedHosts: true,
       proxy: {
         "/api": {
-          target: `http://localhost:${process.env.API_PORT ?? "8087"}`,
+          target: `http://localhost:${process.env.API_PORT ?? process.env.PORT ?? "8787"}`,
           changeOrigin: true,
         },
       },
