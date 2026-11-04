@@ -704,7 +704,9 @@ export const operations: Operation[] = [
     method: "get",
     path: "/events/:id/approval-bundle",
     tag: "Approvals",
-    summary: "Current approval bundle grouped by individual request",
+    summary: "Current approval bundle, grouped requests and decision history",
+    description:
+      "Coordinators see the builder; Faculty, HOD/Dean and Admin can review decisions and the full action trail without changing the event.",
     auth: true,
   },
   {
@@ -1158,7 +1160,10 @@ export const operations: Operation[] = [
     method: "get",
     path: "/events/:id/quiz",
     tag: "Quizzes",
-    summary: "Organiser view of the quiz, answer key and attempt statistics",
+    summary:
+      "Organiser view of the quiz: paper, attempt statistics and (coordinators only) answer key",
+    description:
+      "Reviewers can inspect the paper and results. The answer key is returned only to the event's club coordinators.",
     auth: true,
   },
   {

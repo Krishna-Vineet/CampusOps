@@ -125,8 +125,35 @@ function ruleBody(form: Form) {
 
 function validityText(cp: Checkpoint): string {
   if (cp.validityMode === "MANUAL") return "Only while switched on";
-  if (cp.validityMode === "DATE") return `On ${cp.validOn} (campus date)`;
+  if (cp.validityMode === "DATE") return `On ${cp.validOn ?? "no date set"} (campus day)`;
   return `${cp.startsAt ? formatWhen(cp.startsAt) : "—"} → ${cp.endsAt ? formatWhen(cp.endsAt) : "—"}`;
+}
+
+/** A misconfigured rule is worse than no rule: it refuses every scan silently. */
+function ruleProblem(cp: Checkpoint): string | null {
+  if (cp.validityMode === "DATE" && !cp.validOn)
+    return "No campus day is set, so every scan will be refused.";
+  if (cp.validityMode === "WINDOW") {
+    if (!cp.startsAt || !cp.endsAt)
+      return "The time window is incomplete, so scans will be refused.";
+    if (new Date(cp.endsAt).getTime() <= new Date(cp.startsAt).getTime())
+      return "The window ends before it starts, so scans will be refused.";
+  }
+  return null;
+}
+
+function formProblem(form: Form): string | null {
+  if (!form.name.trim()) return "Give this QR a name participants will recognise.";
+  if (qrTypeNeedsMaxUses(form.qrType) && (!Number.isInteger(form.maxUses) || form.maxUses < 1))
+    return "Valid uses must be a whole number of at least 1.";
+  if (form.validityMode === "DATE" && !form.validOn)
+    return "Choose the campus day this QR is valid on.";
+  if (form.validityMode === "WINDOW") {
+    if (!form.validFrom || !form.validUntil) return "Set both ends of the time window.";
+    if (new Date(form.validUntil).getTime() <= new Date(form.validFrom).getTime())
+      return "The window must end after it starts.";
+  }
+  return null;
 }
 
 function reasonLabel(reason: string | null): string {
@@ -187,6 +214,11 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
   }, [loadAll]);
 
   async function submit() {
+    const problem = formProblem(form);
+    if (problem) {
+      toast.err(problem);
+      return;
+    }
     const ok = await action.run(async () => {
       if (editing) {
         await api(`/access/checkpoints/${editing.id}`, ruleBody(form), { method: "PATCH" });
@@ -256,8 +288,9 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
         <>
           <div className="row between" style={{ marginBottom: 12 }}>
             <p className="meta" style={{ margin: 0 }}>
-              Name each QR whatever you need. Choose what one scan does and when it is accepted. The
-              on/off switch works in every mode, so you can pause a QR immediately.
+              Name each QR whatever you need. Choose what one scan does and when it is accepted. A
+              scan is only accepted while the event is live; the on/off switch pauses a QR
+              immediately.
             </p>
             {canManage && (
               <button
@@ -272,6 +305,12 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
               </button>
             )}
           </div>
+          {event.status !== "LIVE" && (
+            <p className="warn-note">
+              This event is {event.status.replace(/_/g, " ").toLowerCase()}, not live. Every scan is
+              refused with &ldquo;event is not live&rdquo; until a coordinator starts it.
+            </p>
+          )}
           {!checkpoints ? (
             <Loading label="Loading QR rules…" />
           ) : checkpoints.length === 0 ? (
@@ -285,7 +324,7 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
                     <th>Type</th>
                     <th>Validity</th>
                     <th>ID check</th>
-                    <th>Scans</th>
+                    <th>Scans · people</th>
                     <th>Switch</th>
                     {canManage && <th>Actions</th>}
                   </tr>
@@ -298,11 +337,16 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
                         {QR_TYPE_LABELS[cp.qrType]}
                         {cp.qrType === "COUNTED" ? ` · ${cp.maxUses}` : ""}
                       </td>
-                      <td className="meta">{validityText(cp)}</td>
+                      <td className="meta">
+                        {validityText(cp)}
+                        {ruleProblem(cp) && <span className="field-warn">{ruleProblem(cp)}</span>}
+                      </td>
                       <td>{cp.requiresIdCheck ? "Required" : "Not required"}</td>
                       <td>
-                        {cp.uses} by {cp.people}
-                        {cp.denied > 0 ? <span className="meta"> · {cp.denied} denied</span> : null}
+                        {cp.uses} scans · {cp.people} people
+                        {cp.denied > 0 ? (
+                          <span className="meta"> · {cp.denied} refused</span>
+                        ) : null}
                       </td>
                       <td>
                         <span className={`badge ${cp.isActive ? "good" : "muted"}`}>
@@ -347,6 +391,21 @@ export function AccessQrPanel({ event, canManage }: { event: EventRow; canManage
               </table>
             </div>
           )}
+
+          <div className="qr-legend">
+            <h4>What one scan does</h4>
+            <ul className="plain hint">
+              {QR_TYPES.map((type) => (
+                <li key={type}>
+                  <strong>{QR_TYPE_LABELS[type]}</strong> — {QR_TYPE_HINTS[type]}
+                </li>
+              ))}
+            </ul>
+            <p className="meta">
+              Validity narrows when a code is accepted; the on/off switch pauses it in every mode.
+              All times use the campus timezone.
+            </p>
+          </div>
 
           {!canManage && (
             <p className="meta">

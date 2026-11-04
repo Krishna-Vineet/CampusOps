@@ -28,7 +28,6 @@ import {
 } from "../components/ui";
 import { type Page, api, errorMessage, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
-import { useSession } from "../lib/session";
 import type { EventRow } from "../lib/types";
 
 type Policy = {
@@ -87,6 +86,17 @@ type AuditEntry = {
 };
 
 type Department = { id: string; code: string; name: string };
+
+function parseYears(value: string): number[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,\s]+/)
+        .map((part) => Number(part))
+        .filter((year) => Number.isInteger(year) && year >= 2000 && year <= 2100),
+    ),
+  ).sort((a, b) => a - b);
+}
 
 // Loaded on demand: an organiser who never opens these tabs should not download
 // their code.
@@ -184,19 +194,22 @@ export function EventWorkspace({
   approvals,
   overview,
   initialTab,
+  canManage,
 }: {
   event: EventRow;
   onChanged: () => Promise<void>;
   approvals?: ((go: (tab: EventWorkspaceTab) => void) => ReactNode) | undefined;
   overview?: ((go: (tab: EventWorkspaceTab) => void) => ReactNode) | undefined;
   initialTab?: EventWorkspaceTab | undefined;
+  /** Coordinators (and club leads) of this event's club. Oversight is read-only. */
+  canManage: boolean;
 }) {
   const toast = useToast();
   const action = useAction();
-  const { isAdmin, me } = useSession();
   const [tab, setTab] = useState<EventWorkspaceTab>(initialTab ?? "overview");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [form, setForm] = useState<EditForm | null>(null);
+  const [yearsText, setYearsText] = useState("");
   const [departments, setDepartments] = useState<Department[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -221,6 +234,7 @@ export function EventWorkspace({
       const d = await api<Detail>(`/events/${id}`);
       setDetail(d);
       setForm(toForm(d));
+      setYearsText((d.eligibilityPolicy?.graduationYears ?? []).join(", "));
       setError(null);
     } catch (err) {
       setError(errorMessage(err));
@@ -277,6 +291,27 @@ export function EventWorkspace({
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!form || !detail) return;
+    const startsAt = new Date(fromLocalInput(form.startsAt));
+    const endsAt = new Date(fromLocalInput(form.endsAt));
+    const closesAt = new Date(fromLocalInput(form.registrationClosesAt));
+    const opensAt = new Date(fromLocalInput(form.registrationOpensAt));
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+      toast.err("Set both the start and end of the event.");
+      return;
+    }
+    if (endsAt <= startsAt) {
+      toast.err("The event must end after it starts.");
+      return;
+    }
+    if (closesAt > startsAt) {
+      toast.err("Registration must close at or before the event starts.");
+      return;
+    }
+    if (opensAt > closesAt) {
+      toast.err("Registration must open before it closes.");
+      return;
+    }
+    const graduationYears = parseYears(yearsText);
     await action.run(async () => {
       await api(
         `/events/${id}`,
@@ -294,7 +329,7 @@ export function EventWorkspace({
           venueSummary: form.venueSummary || null,
           onlineMeetingUrl: form.onlineMeetingUrl || null,
           jobDescription: form.jobDescription || null,
-          eligibilityPolicy: form.policy,
+          eligibilityPolicy: { ...form.policy, graduationYears },
           expectedRevision: detail.currentRevision,
         },
         { method: "PATCH" },
@@ -357,38 +392,38 @@ export function EventWorkspace({
     });
   }
 
-  const editable = canEditEvent(event.status);
-  // Configuration rights follow the API: the event's club coordinators, or Admin.
-  const canManageEvent =
-    isAdmin ||
-    (me?.clubMemberships ?? []).some(
-      (m) =>
-        m.clubId === event.clubId &&
-        m.isActive &&
-        (m.clubRole === "LEAD" || m.clubRole === "COORDINATOR"),
-    );
+  const editable = canManage && canEditEvent(event.status);
   const canStart = canTransition(event.status, "LIVE");
   const canComplete = event.status === "LIVE" || event.status === "PUBLISHED";
   const live = detail ?? event;
 
   return (
-    <Card title="Manage event" subtitle="Everything for this event, grouped by what you are doing.">
+    <Card
+      title="Event workspace"
+      subtitle={
+        canManage
+          ? "Everything for this event, grouped by what you are doing."
+          : "Read-only view. Decisions on approvals are yours; changing the event belongs to its coordinators."
+      }
+    >
       <div className="event-workspace">
         <nav className="event-nav" aria-label="Event sections">
           {TAB_GROUPS.map((group) => (
             <div className="event-nav-group" key={group.label}>
               <span>{group.label}</span>
-              {group.tabs.map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={tab === key ? "active" : "ghost"}
-                  aria-current={tab === key ? "page" : undefined}
-                  onClick={() => selectTab(key)}
-                >
-                  {label}
-                </button>
-              ))}
+              {group.tabs
+                .filter(([key]) => canManage || key !== "edit")
+                .map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={tab === key ? "active" : "ghost"}
+                    aria-current={tab === key ? "page" : undefined}
+                    onClick={() => selectTab(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
             </div>
           ))}
         </nav>
@@ -421,14 +456,14 @@ export function EventWorkspace({
               <div className="row">
                 <button
                   type="button"
-                  disabled={!canStart || action.busy}
+                  disabled={!canManage || !canStart || action.busy}
                   onClick={() => setConfirm("start")}
                 >
                   Start event
                 </button>
                 <button
                   type="button"
-                  disabled={!canComplete || action.busy}
+                  disabled={!canManage || !canComplete || action.busy}
                   onClick={() => setConfirm("complete")}
                 >
                   Mark completed
@@ -443,7 +478,13 @@ export function EventWorkspace({
                   <strong>Complete</strong> closes the event and releases its resource holds.
                   Reports can be filed once the event has ended.
                 </li>
-                {!canStart && !canComplete && (
+                {!canManage && (
+                  <li>
+                    Starting and completing the event belongs to its club coordinators. You can
+                    follow the status here and in the scan log.
+                  </li>
+                )}
+                {canManage && !canStart && !canComplete && (
                   <li>
                     No day-of action is available from {event.status.replace(/_/g, " ")}. Publish
                     the event first, or check that it is not already closed.
@@ -458,35 +499,39 @@ export function EventWorkspace({
 
           {tab === "roster" && (
             <Suspense fallback={<Loading label="Loading participants…" />}>
-              <RosterPanel event={live} canManage={canManageEvent} />
+              <RosterPanel event={live} canManage={canManage} />
             </Suspense>
           )}
 
           {tab === "quiz" && (
             <Suspense fallback={<Loading label="Loading quiz…" />}>
-              <QuizPanel event={live} canManage={canManageEvent} />
+              <QuizPanel event={live} canManage={canManage} />
             </Suspense>
           )}
 
           {tab === "announcements" && (
             <Suspense fallback={<Loading label="Loading announcements…" />}>
-              <AnnouncementsPanel event={live} canManage={canManageEvent} />
+              <AnnouncementsPanel event={live} canManage={canManage} />
             </Suspense>
           )}
 
           {tab === "access" && (
             <Suspense fallback={<Loading label="Loading access QRs…" />}>
-              <AccessQrPanel event={live} canManage={canManageEvent} />
+              <AccessQrPanel event={live} canManage={canManage} />
             </Suspense>
           )}
 
           {tab === "complaints" && (
             <Suspense fallback={<Loading label="Loading complaints…" />}>
-              <ComplaintsPanel event={live} canManage={canManageEvent} />
+              <ComplaintsPanel event={live} canManage={canManage} />
             </Suspense>
           )}
 
-          {tab === "edit" && !editable && (
+          {tab === "edit" && !canManage && (
+            <Empty>Only this event&apos;s club coordinators can edit its details.</Empty>
+          )}
+
+          {tab === "edit" && canManage && !editable && (
             <Empty>
               Only a DRAFT can be edited. Open <strong>Approvals</strong> and choose{" "}
               <strong>Revise event</strong> to turn a submitted event into a new draft; changing a
@@ -498,6 +543,7 @@ export function EventWorkspace({
 
           {tab === "edit" && editable && form && (
             <form className="form wide" onSubmit={saveEdit}>
+              <h3 className="span-2">Event basics</h3>
               <Field label="Title">
                 <input
                   required
@@ -555,6 +601,7 @@ export function EventWorkspace({
                   onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })}
                 />
               </Field>
+              <h3 className="span-2">Schedule and registration</h3>
               <Field label="Starts">
                 <input
                   type="datetime-local"
@@ -602,6 +649,7 @@ export function EventWorkspace({
                   onChange={(e) => setForm({ ...form, onlineMeetingUrl: e.target.value })}
                 />
               </Field>
+              <h3 className="span-2">Description and placement details</h3>
               <Field label="Description">
                 <textarea
                   rows={3}
@@ -672,21 +720,22 @@ export function EventWorkspace({
                     ))}
                   </select>
                 </Field>
-                <Field label="Graduation years" hint="Comma separated, e.g. 2026, 2027.">
+                <Field
+                  label="Graduation years"
+                  hint="Type years separated by commas or spaces, e.g. 2026, 2027. Leave empty for any year."
+                >
                   <input
-                    value={form.policy.graduationYears.join(", ")}
-                    onChange={(e) =>
+                    inputMode="numeric"
+                    value={yearsText}
+                    placeholder="2026, 2027"
+                    onChange={(e) => {
+                      setYearsText(e.target.value);
                       setForm({
                         ...form,
-                        policy: {
-                          ...form.policy,
-                          graduationYears: e.target.value
-                            .split(/[,\s]+/)
-                            .map((v) => Number(v))
-                            .filter((v) => Number.isInteger(v) && v >= 2000 && v <= 2100),
-                        },
-                      })
-                    }
+                        policy: { ...form.policy, graduationYears: parseYears(e.target.value) },
+                      });
+                    }}
+                    onBlur={() => setYearsText(parseYears(yearsText).join(", "))}
                   />
                 </Field>
                 <label className="checkbox">
@@ -711,7 +760,11 @@ export function EventWorkspace({
                 <button
                   type="button"
                   className="ghost"
-                  onClick={() => detail && setForm(toForm(detail))}
+                  onClick={() => {
+                    if (!detail) return;
+                    setForm(toForm(detail));
+                    setYearsText((detail.eligibilityPolicy?.graduationYears ?? []).join(", "));
+                  }}
                 >
                   Reset
                 </button>
@@ -721,33 +774,57 @@ export function EventWorkspace({
 
           {tab === "invitations" && (
             <>
+              {!canManage && (
+                <p className="meta">
+                  Invitations are read-only here. Only this event&apos;s club coordinators can add
+                  or revoke them.
+                </p>
+              )}
+              {event.status !== "PUBLISHED" && event.status !== "LIVE" && canManage && (
+                <p className="warn-note">
+                  This event is {event.status.replace(/_/g, " ").toLowerCase()} and not open for
+                  registration yet. You can prepare invitations now; they start admitting people
+                  once the event is published.
+                </p>
+              )}
               {event.audience === "COLLEGE_ONLY" && (
                 <p className="warn-note">
                   This event is college-only. Invitations matter for events open to outsiders or
                   marked invited-only.
                 </p>
               )}
-              <form className="form" onSubmit={sendInvites}>
-                <Field label="Email addresses" hint="Separate with commas, spaces or new lines.">
-                  <textarea
-                    rows={3}
-                    value={inviteText}
-                    placeholder="student@othercollege.edu"
-                    onChange={(e) => setInviteText(e.target.value)}
-                  />
-                </Field>
-                <Field label="Expires (optional)">
-                  <input
-                    type="datetime-local"
-                    value={inviteExpiry}
-                    onChange={(e) => setInviteExpiry(e.target.value)}
-                  />
-                </Field>
-                {inviteError && <ErrorNote message={inviteError} />}
-                <button type="submit" disabled={action.busy}>
-                  Invite
-                </button>
-              </form>
+              {detail &&
+                !detail.eligibilityPolicy?.requireInvitation &&
+                event.audience !== "COLLEGE_ONLY" && (
+                  <p className="meta">
+                    This event does not require an invitation. Eligible students can register
+                    without one; these addresses are recorded for follow-up. Turn on{" "}
+                    <strong>Require an invitation</strong> in Edit details to gate registration.
+                  </p>
+                )}
+              {canManage && (
+                <form className="form" onSubmit={sendInvites}>
+                  <Field label="Email addresses" hint="Separate with commas, spaces or new lines.">
+                    <textarea
+                      rows={3}
+                      value={inviteText}
+                      placeholder="student@othercollege.edu"
+                      onChange={(e) => setInviteText(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Expires (optional)">
+                    <input
+                      type="datetime-local"
+                      value={inviteExpiry}
+                      onChange={(e) => setInviteExpiry(e.target.value)}
+                    />
+                  </Field>
+                  {inviteError && <ErrorNote message={inviteError} />}
+                  <button type="submit" disabled={action.busy}>
+                    Invite
+                  </button>
+                </form>
+              )}
 
               {invites.length === 0 ? (
                 <Empty>No invitations recorded for this event.</Empty>

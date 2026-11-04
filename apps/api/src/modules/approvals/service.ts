@@ -477,7 +477,8 @@ export async function eventBundle(auth: AuthContext, eventId: string) {
     .from(approvalBundles)
     .where(and(eq(approvalBundles.eventId, eventId), isNull(approvalBundles.supersededAt)))
     .limit(1);
-  if (!bundle) return { event, club, bundle: null, requests: [], summary: summarizeBundle([]) };
+  if (!bundle)
+    return { event, club, bundle: null, requests: [], summary: summarizeBundle([]), history: [] };
   const requests = await db
     .select({
       request: approvalRequests,
@@ -516,12 +517,18 @@ export async function eventBundle(auth: AuthContext, eventId: string) {
       return { ...r, resources: links, lastAction: lastActionByRequest.get(r.request.id) ?? null };
     }),
   );
+  const titles = new Map(requests.map((r) => [r.request.id, r.request.title]));
   return {
     event,
     club,
     bundle,
     requests: withResources,
     summary: summarizeBundle(requests.map((r) => r.request)),
+    // Newest first: the overview renders this as the event's approval history.
+    history: actionRows.map((row) => ({
+      ...row,
+      requestTitle: titles.get(row.action.requestId) ?? "Approval request",
+    })),
   };
 }
 
@@ -548,6 +555,25 @@ export async function decide(
     assertVersion(locked, input.expectedVersion);
 
     const nextStatus = DECISION_RESULT_STATUS[input.action as DecisionAction];
+    if (input.action === "APPROVE" && locked.type === "RESOURCE_USE") {
+      // A resource hold is a commitment of the event as submitted. If a reviewer
+      // has sent the event back for changes — or a required rejection returned it
+      // to draft — approving the room/lab before the coordinator fixes the event
+      // would reserve campus space for something that is still moving.
+      const bundleRequests = await tx
+        .select()
+        .from(approvalRequests)
+        .where(eq(approvalRequests.bundleId, locked.bundleId));
+      const openChange = bundleRequests.some(
+        (request) =>
+          request.id !== requestId && request.isRequired && request.status === "CHANGES_REQUESTED",
+      );
+      if (ctx.event.status === "DRAFT" || openChange)
+        throw new ApiError(
+          "CONFLICT",
+          "The event has requested changes. The coordinator must fix and resubmit it before its resources can be approved.",
+        );
+    }
     if (input.action === "APPROVE") {
       await confirmRequestHolds(tx, requestId);
     } else {
@@ -776,8 +802,11 @@ export async function cancelRequest(
       .for("update");
     if (!locked) throw new ApiError("NOT_FOUND", "Approval request not found.");
     const ctx = await requestContext(tx, requestId);
-    const allowed = isClubCoordinator(auth, ctx.event.clubId) || hasRole(auth, "ADMIN");
-    if (!allowed) throw new ApiError("FORBIDDEN", "You cannot withdraw this request.");
+    if (!isClubCoordinator(auth, ctx.event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's coordinators can withdraw its approval requests.",
+      );
     if (locked.status === "CANCELLED")
       throw new ApiError("CONFLICT", "This request is already cancelled.");
     assertVersion(locked, input.expectedVersion);
@@ -826,8 +855,11 @@ export async function addRequest(
     return await db.transaction(async (tx) => {
       const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
       if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-      if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-        throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+      if (!isClubCoordinator(auth, event.clubId))
+        throw new ApiError(
+          "FORBIDDEN",
+          "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+        );
       if (event.status !== "PENDING_APPROVALS" && event.status !== "READY")
         throw new ApiError(
           "CONFLICT",
@@ -934,8 +966,11 @@ export async function attachResources(
       .for("update");
     if (!locked) throw new ApiError("NOT_FOUND", "Approval request not found.");
     const ctx = await requestContext(tx, requestId);
-    if (!isClubCoordinator(auth, ctx.event.clubId) && !hasRole(auth, "ADMIN"))
-      throw new ApiError("FORBIDDEN", "You cannot manage this request.");
+    if (!isClubCoordinator(auth, ctx.event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's coordinators can change its approval requests.",
+      );
     if (locked.type !== "RESOURCE_USE")
       throw new ApiError("VALIDATION_ERROR", "Only RESOURCE_USE requests hold resources.");
     if (locked.status !== "PENDING" && locked.status !== "CHANGES_REQUESTED")

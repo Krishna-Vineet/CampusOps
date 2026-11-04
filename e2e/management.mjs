@@ -67,6 +67,8 @@ const tab = async (page, label) => {
   await page.click(`nav.tabs button:has-text("${label}")`);
 };
 const sub = (page, label) => page.click(`.subtabs button:has-text("${label}")`);
+/** Event workspace tabs are their own navigation, not the panel's sub-tabs. */
+const eventTab = (page, label) => page.click(`.event-nav button:has-text("${label}")`);
 
 /** Fill a Field by its visible label, scoped to a container. */
 async function field(scope, label, value) {
@@ -236,8 +238,8 @@ try {
   // ── Event operations: edit a draft, eligibility, invitations, history ────
   const lead = await session("coding.lead@demo.campusops.local");
   await tab(lead.page, "Events");
-  await lead.page.waitForSelector("table.grid tbody tr", { timeout: 15000 });
-  await lead.page.click('button:has-text("New draft")');
+  await lead.page.waitForSelector('button:has-text("New event")', { timeout: 15000 });
+  await lead.page.click('button:has-text("New event")');
   const draftTitle = `E2E Ops Event ${stamp}`;
   const draftForm = lead.page.locator("form.form.wide").first();
   await draftForm.locator("input").nth(0).fill(draftTitle);
@@ -245,8 +247,8 @@ try {
   await lead.page.waitForSelector(`h2:has-text("${draftTitle}")`, { timeout: 15000 });
   ok("draft created for event operations");
 
-  await lead.page.waitForSelector('.subtabs button:has-text("Edit details")', { timeout: 15000 });
-  await sub(lead.page, "Edit details");
+  await lead.page.waitForSelector('.event-nav button:has-text("Edit details")', { timeout: 15000 });
+  await eventTab(lead.page, "Edit details");
   await lead.page.waitForSelector('legend:has-text("Who may register")', { timeout: 15000 });
   ok("draft editor exposes the eligibility policy");
   const opsForm = lead.page.locator("form.form.wide").last();
@@ -259,7 +261,7 @@ try {
   await lead.page.waitForSelector(".toast.ok", { timeout: 15000 });
   ok("draft edited and saved with an eligibility policy");
 
-  await sub(lead.page, "Invitations");
+  await eventTab(lead.page, "Invitations");
   await lead.page.waitForSelector('textarea[placeholder="student@othercollege.edu"]', {
     timeout: 15000,
   });
@@ -287,13 +289,13 @@ try {
   );
   ok("invitation revoked through the UI");
 
-  await sub(lead.page, "History");
+  await eventTab(lead.page, "History");
   await lead.page.waitForSelector('h3:has-text("Audit trail")', { timeout: 15000 });
   const historyText = await lead.page.locator("body").innerText();
   if (/revision/i.test(historyText)) ok("event history shows revisions and audit");
   else fail("event history", "no revision section");
 
-  await sub(lead.page, "Day of event");
+  await eventTab(lead.page, "Day of event");
   const startDisabled = await lead.page.locator('button:has-text("Start event")').isDisabled();
   if (startDisabled) ok("start is blocked for an unapproved draft");
   else fail("lifecycle gate", "Start enabled on a DRAFT");

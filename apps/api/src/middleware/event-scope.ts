@@ -62,8 +62,13 @@ export function requireEventManage(param = "id") {
     const eventId = c.req.param(param);
     if (!eventId) throw new ApiError("VALIDATION_ERROR", "Missing event id.");
     const event = await loadEventWithClub(eventId);
-    const allowed = isClubCoordinator(auth, event.clubId) || hasRole(auth, "ADMIN");
-    if (!allowed) throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+    // Oversight (Admin, HOD/Dean) may read the event and decide approvals, but
+    // every change belongs to the club's own coordinators.
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+      );
     c.set("event", event);
     await next();
   });
@@ -134,8 +139,11 @@ export async function assertEventManage(auth: AuthContext, eventId: string) {
   if (auth.user.status !== "ACTIVE")
     throw new ApiError("ACCOUNT_PENDING", "Account is not active yet.");
   const event = await loadEventWithClub(eventId);
-  if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-    throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+  if (!isClubCoordinator(auth, event.clubId))
+    throw new ApiError(
+      "FORBIDDEN",
+      "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+    );
   return event;
 }
 

@@ -114,11 +114,11 @@ try {
   if (await fac.page.getByRole("button", { name: "New event", exact: true }).count())
     throw new Error("Faculty must not get New event");
   await tab(fac.page, "Events");
-  await fac.page.locator("h2", { hasText: "Club events (read-only)" }).waitFor();
-  const disabled = await fac.page
-    .getByRole("button", { name: "New draft", exact: true })
-    .isDisabled();
-  if (!disabled) throw new Error("Faculty New draft must be disabled");
+  await fac.page
+    .getByText("Read-only view of the clubs you are faculty for.", { exact: true })
+    .waitFor();
+  if ((await fac.page.getByRole("button", { name: "New event", exact: true }).count()) > 0)
+    throw new Error("Faculty must not get a New event button");
   ok("club faculty get read-only events, no create action");
   await fac.ctx.close();
 

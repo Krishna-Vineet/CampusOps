@@ -47,7 +47,11 @@ import {
   users,
 } from "../../db/schema";
 import { type AuthContext, departmentScope, hasRole } from "../../middleware/auth";
-import { hasEventOversight, isClubCoordinator, isClubLead } from "../../middleware/event-scope";
+import {
+  hasEventOversight,
+  isClubCoordinator,
+  isClubOrganiser,
+} from "../../middleware/event-scope";
 import { ApiError } from "../../utils/api-error";
 import { isExclusionViolation, isUniqueViolation } from "../../utils/db-error";
 import { uniqueSlug } from "../../utils/slug";
@@ -94,8 +98,11 @@ async function assertClubCoordinator(auth: AuthContext, clubId: string) {
   const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
   if (!club) throw new ApiError("NOT_FOUND", "Club not found.");
   if (!club.isActive) throw new ApiError("CONFLICT", "This club is not active.");
-  if (!isClubCoordinator(auth, clubId) && !hasRole(auth, "ADMIN"))
-    throw new ApiError("FORBIDDEN", "You are not a coordinator of this club.");
+  if (!isClubCoordinator(auth, clubId))
+    throw new ApiError(
+      "FORBIDDEN",
+      "Only a coordinator of this club can create or change its events.",
+    );
   return club;
 }
 
@@ -215,8 +222,11 @@ export async function updateEvent(
   return db.transaction(async (tx) => {
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-    if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-      throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+      );
     if (event.status !== "DRAFT")
       throw new ApiError(
         "INVALID_STATE_TRANSITION",
@@ -327,8 +337,11 @@ export async function submitEvent(
     return await db.transaction(async (tx) => {
       const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
       if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-      if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-        throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+      if (!isClubCoordinator(auth, event.clubId))
+        throw new ApiError(
+          "FORBIDDEN",
+          "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+        );
       if (event.status !== "DRAFT")
         throw new ApiError("INVALID_STATE_TRANSITION", "Only a draft event can be submitted.");
       if (event.currentRevision !== input.expectedRevision)
@@ -557,8 +570,11 @@ export async function createRevision(
   return db.transaction(async (tx) => {
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-    if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-      throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+      );
     if (event.status === "COMPLETED" || event.status === "CANCELLED")
       throw new ApiError("INVALID_STATE_TRANSITION", "This event is closed.");
     if (event.status === "DRAFT")
@@ -646,8 +662,11 @@ export async function publishEvent(
   return db.transaction(async (tx) => {
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-    if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-      throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+      );
     if (event.currentRevision !== input.expectedRevision)
       throw new ApiError("CONFLICT", "The event changed since you opened it. Reload and retry.");
 
@@ -733,13 +752,13 @@ export async function cancelEvent(
   return db.transaction(async (tx) => {
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-    const [club] = await tx.select().from(clubs).where(eq(clubs.id, event.clubId)).limit(1);
-    const allowed =
-      isClubLead(auth, event.clubId) ||
-      hasRole(auth, "ADMIN") ||
-      hasEventOversight(auth, club?.departmentId ?? null) ||
-      event.createdBy === auth.user.id;
-    if (!allowed) throw new ApiError("FORBIDDEN", "You cannot cancel this event.");
+    // Cancellation changes the event and releases its holds, so it stays with
+    // the club's coordinators. Oversight decides approvals instead.
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can cancel it. Oversight can review and decide approvals.",
+      );
     if (!canTransition(event.status, "CANCELLED"))
       throw new ApiError("INVALID_STATE_TRANSITION", `Cannot cancel from ${event.status}.`);
 
@@ -820,8 +839,11 @@ export async function startEvent(auth: AuthContext, eventId: string, audit?: Aud
   return db.transaction(async (tx) => {
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-    if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-      throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+      );
     if (!canTransition(event.status, "LIVE"))
       throw new ApiError("INVALID_STATE_TRANSITION", `Cannot start from ${event.status}.`);
     const [updated] = await tx
@@ -853,8 +875,11 @@ export async function completeEvent(
   return db.transaction(async (tx) => {
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-    if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-      throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+      );
     if (event.status !== "LIVE" && event.status !== "PUBLISHED")
       throw new ApiError("INVALID_STATE_TRANSITION", `Cannot complete from ${event.status}.`);
     if (event.endsAt > new Date())
@@ -974,8 +999,11 @@ export async function invite(
   return db.transaction(async (tx) => {
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).for("update");
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-    if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-      throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+      );
     if (event.status === "CANCELLED" || event.status === "COMPLETED")
       throw new ApiError("CONFLICT", "This event is closed.");
     if (input.expiresAt && new Date(input.expiresAt) <= new Date())
@@ -1035,8 +1063,12 @@ export async function listInvitations(auth: AuthContext, eventId: string) {
   const { db } = getDb();
   const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
   if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-  if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-    throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+  const [club] = await db.select().from(clubs).where(eq(clubs.id, event.clubId)).limit(1);
+  const canRead =
+    isClubCoordinator(auth, event.clubId) ||
+    isClubOrganiser(auth, event.clubId) ||
+    hasEventOversight(auth, club?.departmentId ?? null);
+  if (!canRead) throw new ApiError("NOT_FOUND", "Event not found.");
   return db
     .select()
     .from(eventInvitations)
@@ -1055,8 +1087,11 @@ export async function revokeInvitation(
   return db.transaction(async (tx) => {
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).limit(1);
     if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
-    if (!isClubCoordinator(auth, event.clubId) && !hasRole(auth, "ADMIN"))
-      throw new ApiError("FORBIDDEN", "You cannot manage this event.");
+    if (!isClubCoordinator(auth, event.clubId))
+      throw new ApiError(
+        "FORBIDDEN",
+        "Only this event's club coordinators can change it. Oversight can review and decide approvals.",
+      );
     const [row] = await tx
       .update(eventInvitations)
       .set({ revokedAt: new Date() })

@@ -3696,6 +3696,14 @@ button.pill.active {
   gap: 18px;
   align-items: start;
 }
+/* One event at a time: the list is replaced, not squeezed beside the detail. */
+.events-layout.is-focused {
+  grid-template-columns: minmax(0, 1fr);
+}
+.events-layout.is-focused .events-stage {
+  max-width: 1180px;
+  width: 100%;
+}
 .events-rail {
   display: flex;
   flex-direction: column;
@@ -4193,6 +4201,87 @@ button.preset small {
 .approval-request .meta {
   margin: 2px 0 0;
 }
+.qr-legend {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.qr-legend h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.qr-legend ul {
+  margin: 0 0 6px;
+}
+.approval-timeline {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.approval-timeline li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: start;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line);
+}
+.approval-timeline li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.approval-timeline .dot {
+  margin-top: 5px;
+}
+.approval-timeline strong {
+  display: block;
+  font-size: 12px;
+}
+.approval-timeline .hint {
+  display: block;
+  margin-top: 1px;
+}
+.approval-timeline p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.approval-timeline time {
+  white-space: nowrap;
+  font-size: 10px;
+}
+.review-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--primary-soft, var(--surface-2)) 40%, var(--surface));
+}
+.review-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-box .field textarea {
+  min-height: 54px;
+}
+.field-warn {
+  display: block;
+  margin-top: 2px;
+  color: var(--bad);
+  font-size: 11px;
+  max-width: 34ch;
+}
 .approval-facts {
   display: flex;
   gap: 18px;
@@ -4385,7 +4474,8 @@ button.scope-option.active strong {
 }
 
 @media (max-width: 980px) {
-  .events-layout {
+  .events-layout,
+  .events-layout.is-focused {
     grid-template-columns: 1fr;
   }
   .events-rail {

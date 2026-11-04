@@ -19,7 +19,7 @@ export const eventQuizRoutes = new Hono();
 eventQuizRoutes.use("*", authenticate, requireActiveAccount);
 
 eventQuizRoutes.get("/:id/quiz", requireEventOrganiserRead(), async (c) =>
-  ok(c, await service.getForOrganiser(c.req.param("id"))),
+  ok(c, await service.getForOrganiser(c.get("auth"), c.req.param("id"))),
 );
 
 eventQuizRoutes.put("/:id/quiz", requireEventManage(), async (c) => {

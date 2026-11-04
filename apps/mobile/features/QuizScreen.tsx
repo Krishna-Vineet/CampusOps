@@ -16,6 +16,7 @@ import {
 import { api, errorMessage } from "../lib/api";
 import { when } from "../lib/format";
 import type { Paper, ParticipantQuiz, QuizResult } from "../lib/quizTypes";
+import { useSession } from "../lib/session";
 
 const clock = (seconds: number) => {
   const safe = Math.max(0, seconds);
@@ -38,6 +39,8 @@ export function QuizScreen({
   eventTitle: string;
   onClose: () => void;
 }) {
+  const { config } = useSession();
+  const timeZone = config?.campusTimezone ?? "Asia/Kolkata";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ParticipantQuiz | null>(null);
@@ -256,8 +259,8 @@ export function QuizScreen({
             value={`${Math.round(quiz.durationSeconds / 60)} minutes`}
           />
           {quiz.passScore !== null && <Row label="Pass mark" value={`${quiz.passScore}%`} />}
-          <Row label="Opens" value={when(quiz.opensAt)} />
-          <Row label="Closes" value={when(quiz.closesAt)} />
+          <Row label="Opens" value={when(quiz.opensAt, timeZone)} />
+          <Row label="Closes" value={when(quiz.closesAt, timeZone)} />
           <Muted>
             {quiz.mode === "TOP_N"
               ? "Everyone's scores are ranked when the quiz closes. Ties are broken by who submitted first."
@@ -281,7 +284,7 @@ export function QuizScreen({
               message={
                 quiz.status === "CLOSED"
                   ? "This quiz is closed. You did not start an attempt in time."
-                  : `The quiz opens ${when(quiz.opensAt)}.`
+                  : `The quiz opens ${when(quiz.opensAt, timeZone)}.`
               }
               tone="neutral"
             />

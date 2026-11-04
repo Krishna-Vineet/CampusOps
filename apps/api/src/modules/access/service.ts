@@ -21,7 +21,7 @@ import {
   studentProfiles,
   users,
 } from "../../db/schema";
-import { type AuthContext, hasRole } from "../../middleware/auth";
+import type { AuthContext } from "../../middleware/auth";
 import { isClubCoordinator, isClubOrganiser } from "../../middleware/event-scope";
 import { ApiError } from "../../utils/api-error";
 import { isUniqueViolation } from "../../utils/db-error";
@@ -37,11 +37,11 @@ import type {
 
 /**
  * Scanning is done by the people running the event: its club's coordinators and
- * its club faculty. There is no separate scanning-staff account. Admin may also
- * scan, as the top institutional authority.
+ * its club faculty. There is no separate scanning-staff account. Oversight is
+ * read-only, so Admin and HOD/Dean do not scan either.
  */
 export function assertMayScan(auth: AuthContext, clubId: string) {
-  if (hasRole(auth, "ADMIN") || isClubOrganiser(auth, clubId)) return;
+  if (isClubOrganiser(auth, clubId)) return;
   throw new ApiError(
     "FORBIDDEN",
     "Only this event's coordinators and club faculty can scan access QRs.",
@@ -74,15 +74,15 @@ async function loadEvent(eventId: string) {
   return event;
 }
 
-/** A counter is managed by the coordinators of its event's club, or Admin. */
+/** A counter is managed only by the coordinators of its event's club. */
 export async function assertCheckpointManageable(auth: AuthContext, checkpointId: string) {
   const cp = await loadCheckpoint(checkpointId);
   const event = await loadEvent(cp.eventId);
-  if (hasRole(auth, "ADMIN") || isClubCoordinator(auth, event.clubId)) return cp;
-  throw new ApiError("FORBIDDEN", "You cannot manage this event's counters.");
+  if (isClubCoordinator(auth, event.clubId)) return cp;
+  throw new ApiError("FORBIDDEN", "Only this event's coordinators can manage its counters.");
 }
 
-/** A pass is revoked by the coordinators of its event's club, or Admin. */
+/** A pass is revoked only by the coordinators of its event's club. */
 export async function assertPassManageable(auth: AuthContext, passId: string) {
   const { db } = getDb();
   const [row] = await db
@@ -93,8 +93,8 @@ export async function assertPassManageable(auth: AuthContext, passId: string) {
     .limit(1);
   if (!row) throw new ApiError("NOT_FOUND", "Pass not found.");
   const event = await loadEvent(row.eventId);
-  if (hasRole(auth, "ADMIN") || isClubCoordinator(auth, event.clubId)) return;
-  throw new ApiError("FORBIDDEN", "You cannot manage this event's passes.");
+  if (isClubCoordinator(auth, event.clubId)) return;
+  throw new ApiError("FORBIDDEN", "Only this event's coordinators can manage its passes.");
 }
 
 async function loadCheckpoint(checkpointId: string) {

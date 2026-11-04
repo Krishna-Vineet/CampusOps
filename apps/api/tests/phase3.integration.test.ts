@@ -428,6 +428,24 @@ describe("phase 3 events", () => {
     expect(okRes.json.data.request.status).toBe("APPROVED");
     expect(okRes.json.data.request.version).toBe(2);
 
+    // Oversight can read the decision trail without being able to act on it.
+    const trail = await req(
+      "GET",
+      `/api/v1/events/${ids.event}/approval-bundle`,
+      undefined,
+      tokens.senior,
+    );
+    expect(trail.status).toBe(200);
+    expect(trail.json.data.history).toHaveLength(4);
+    const approval = trail.json.data.history.find(
+      (entry: Body) => entry.action.action === "APPROVE",
+    );
+    expect(approval.actor.id).toBe(ids.faculty);
+    expect(approval.requestTitle).toBe("Organize workshop");
+    expect(trail.json.data.history.some((entry: Body) => entry.action.action === "SUBMIT")).toBe(
+      true,
+    );
+
     const replay = await req(
       "POST",
       `/api/v1/approval-requests/${ids.organizeRequest}/decision`,
@@ -491,6 +509,153 @@ describe("phase 3 events", () => {
       tokens.faculty,
     );
     expect(noComment.status).toBe(400);
+  });
+});
+
+describe("oversight reviews events without changing them", () => {
+  test("Admin and HOD can read an event but cannot edit, submit, publish or cancel it", async () => {
+    const detail = await req("GET", `/api/v1/events/${ids.event}`, undefined, tokens.admin);
+    expect(detail.status).toBe(200);
+    const seniorDetail = await req("GET", `/api/v1/events/${ids.event}`, undefined, tokens.senior);
+    expect(seniorDetail.status).toBe(200);
+
+    const patch = await req(
+      "PATCH",
+      `/api/v1/events/${ids.event}`,
+      { expectedRevision: 1, capacity: 55 },
+      tokens.admin,
+    );
+    expect(patch.status).toBe(403);
+
+    const submit = await req(
+      "POST",
+      `/api/v1/events/${ids.event}/submit`,
+      { expectedRevision: 1, requests: [] },
+      tokens.admin,
+    );
+    expect(submit.status).toBe(403);
+
+    const publish = await req(
+      "POST",
+      `/api/v1/events/${ids.event}/publish`,
+      { expectedRevision: 1 },
+      tokens.admin,
+    );
+    expect(publish.status).toBe(403);
+    const seniorPublish = await req(
+      "POST",
+      `/api/v1/events/${ids.event}/publish`,
+      { expectedRevision: 1 },
+      tokens.senior,
+    );
+    expect(seniorPublish.status).toBe(403);
+
+    const cancel = await req(
+      "POST",
+      `/api/v1/events/${ids.event}/cancel`,
+      { reason: "Oversight cannot cancel" },
+      tokens.admin,
+    );
+    expect(cancel.status).toBe(403);
+
+    const addRequest = await req(
+      "POST",
+      `/api/v1/events/${ids.event}/approval-requests`,
+      {
+        type: "ORGANIZE",
+        title: "Oversight added this",
+        assignedApproverId: ids.faculty,
+      },
+      tokens.admin,
+    );
+    expect(addRequest.status).toBe(403);
+
+    const withdraw = await req(
+      "POST",
+      `/api/v1/approval-requests/${ids.resourceRequest}/cancel`,
+      { reason: "Oversight cannot withdraw", expectedVersion: 2 },
+      tokens.admin,
+    );
+    expect(withdraw.status).toBe(403);
+
+    // Reading the invitation list is part of review, even though adding or
+    // revoking one is not.
+    const invitations = await req(
+      "GET",
+      `/api/v1/events/${ids.event}/invitations`,
+      undefined,
+      tokens.senior,
+    );
+    expect(invitations.status).toBe(200);
+  });
+
+  test("a resource cannot be approved while the event still has required changes", async () => {
+    const created = await req(
+      "POST",
+      "/api/v1/events",
+      eventBody(ids.club as string, 31),
+      tokens.lead,
+    );
+    expect(created.status).toBe(201);
+    const eventId = created.json.data.id as string;
+    const w = window(31, 9, 12);
+    const submit = await req(
+      "POST",
+      `/api/v1/events/${eventId}/submit`,
+      {
+        expectedRevision: 1,
+        requests: [
+          {
+            type: "ORGANIZE",
+            title: "Organize guarded event",
+            assignedApproverId: ids.faculty,
+            isRequired: true,
+          },
+          {
+            type: "RESOURCE_USE",
+            title: "Use Room 2",
+            assignedApproverId: ids.faculty,
+            isRequired: true,
+            resources: [{ resourceUnitId: ids.unit2, ...w }],
+          },
+        ],
+      },
+      tokens.lead,
+    );
+    expect(submit.status).toBe(200);
+    const organize = submit.json.data.requests.find((r: Body) => r.type === "ORGANIZE").id;
+    const resource = submit.json.data.requests.find((r: Body) => r.type === "RESOURCE_USE").id;
+
+    const changes = await req(
+      "POST",
+      `/api/v1/approval-requests/${organize}/decision`,
+      {
+        action: "REQUEST_CHANGES",
+        comment: "Move the start time and resubmit.",
+        expectedVersion: 1,
+      },
+      tokens.faculty,
+    );
+    expect(changes.status).toBe(200);
+    // The other required request is still pending, so the event has not fallen
+    // back to draft yet. The open change still freezes its resource.
+    expect(changes.json.data.event.status).toBe("PENDING_APPROVALS");
+
+    const approveResource = await req(
+      "POST",
+      `/api/v1/approval-requests/${resource}/decision`,
+      { action: "APPROVE", expectedVersion: 1 },
+      tokens.faculty,
+    );
+    expect(approveResource.status).toBe(409);
+    expect(approveResource.json.error.code).toBe("CONFLICT");
+
+    const { db } = getDb();
+    const [hold] = await db
+      .select()
+      .from(resourceReservations)
+      .where(eq(resourceReservations.requestId, resource));
+    expect(hold?.status).toBe("HELD");
   });
 });
 

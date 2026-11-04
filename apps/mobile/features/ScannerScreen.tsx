@@ -36,13 +36,15 @@ const REFUSALS: Record<string, string> = {
   QR_INVALID: "This code could not be verified.",
   WRONG_CHECKPOINT: "This code belongs to a different QR.",
   CHECKPOINT_REVOKED: "This QR has been withdrawn by the coordinator.",
+  QR_SWITCHED_OFF: "This QR is switched off right now.",
   CHECKPOINT_DISABLED: "This QR is switched off right now.",
   LIMIT_REACHED: "This participant has used up this QR.",
   IDENTITY_MISMATCH: "The ID did not match. Do not let them in.",
   NOT_CONFIRMED: "This participant does not hold a confirmed place.",
   PASS_REVOKED: "This participant's pass has been revoked.",
-  EVENT_NOT_LIVE: "The event is not open for entry.",
+  EVENT_NOT_LIVE: "The event is not live. Start the event from the web console before scanning.",
   OUTSIDE_WINDOW: "This QR is not valid at this time.",
+  NOT_TODAY: "This QR is set for a different campus day. Check the QR's date before scanning.",
   SCAN_TOO_OLD: "This scan is too old to record. Scan the participant again.",
   FORBIDDEN: "You cannot scan for this event.",
 };
@@ -53,9 +55,9 @@ function refusalMessage(reason: string): string {
 
 export function ScannerScreen({ onComplaint }: { onComplaint: (id: string) => void }) {
   const { me, config } = useSession();
-  const organiser = Boolean(
-    me?.clubMemberships.length || me?.globalRoles.some((r) => r.role === "ADMIN"),
-  );
+  // Scanning belongs to the event's club team. Admins and HOD/Dean oversee
+  // events but do not scan; the API would refuse them anyway.
+  const organiser = Boolean(me?.clubMemberships.length);
   const [mode, setMode] = useState<"complaint" | "access">("complaint");
   const [permission, requestPermission] = useCameraPermissions();
   const [manual, setManual] = useState("");
@@ -77,9 +79,7 @@ export function ScannerScreen({ onComplaint }: { onComplaint: (id: string) => vo
   useEffect(() => {
     if (mode !== "access") return;
     api<Page<ManagedEvent>>("/me/events?limit=100")
-      .then((p) =>
-        setEvents(p.items.filter((e) => e.status === "LIVE" || e.status === "PUBLISHED")),
-      )
+      .then((p) => setEvents(p.items.filter((e) => e.status === "LIVE")))
       .catch((e) => setError(errorMessage(e)));
   }, [mode]);
   useEffect(() => {
@@ -267,8 +267,8 @@ export function ScannerScreen({ onComplaint }: { onComplaint: (id: string) => vo
           </Muted>
           {events.length === 0 ? (
             <Empty
-              title="No organised events"
-              detail="Ask HOD/Dean or Admin to add you to the event's club team."
+              title="No live event to scan"
+              detail="Access QRs only work while an event is live. Ask its coordinator to start it from the web console, or check that you are on the event's club team."
             />
           ) : (
             <View style={{ gap: 8 }}>

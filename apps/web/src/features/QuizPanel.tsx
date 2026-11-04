@@ -88,6 +88,7 @@ export function QuizPanel({ event, canManage }: { event: EventRow; canManage: bo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [quiz, setQuiz] = useState<QuizRow | null>(null);
+  const [canSeeKey, setCanSeeKey] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
   const [questions, setQuestions] = useState<Question[]>([blankQuestion()]);
   const [form, setForm] = useState({
@@ -107,17 +108,21 @@ export function QuizPanel({ event, canManage }: { event: EventRow; canManage: bo
     try {
       const data = await api<{
         quiz: QuizRow | null;
-        questions: Array<Question & { id: string }>;
+        questions: Array<
+          Omit<Question, "correctOptionIndex"> & { id: string; correctOptionIndex?: number }
+        >;
         stats: Stats | null;
+        canSeeAnswerKey?: boolean;
       }>(`/events/${event.id}/quiz`);
       setQuiz(data.quiz);
       setStats(data.stats);
+      setCanSeeKey(data.canSeeAnswerKey ?? false);
       if (data.quiz) {
         setQuestions(
           data.questions.map((q) => ({
             prompt: q.prompt,
             options: q.options,
-            correctOptionIndex: q.correctOptionIndex,
+            correctOptionIndex: q.correctOptionIndex ?? 0,
             points: Number(q.points),
           })),
         );
@@ -476,13 +481,21 @@ export function QuizPanel({ event, canManage }: { event: EventRow; canManage: bo
         </Card>
       )}
 
+      {!canManage && !quiz && (
+        <Empty>
+          No quiz has been set up for this event yet. Only its club coordinators can author one.
+        </Empty>
+      )}
+
       {!editable && quiz && (
         <Card title="The paper">
           <p className="meta">
-            {quiz.status !== "DRAFT"
-              ? "A published quiz cannot be edited."
-              : "Attempts have started, so the paper is locked."}{" "}
-            Only coordinators can manage this event.
+            {!canManage
+              ? "Read-only. Only this event's coordinators can author or run the quiz."
+              : quiz.status !== "DRAFT"
+                ? "A published quiz cannot be edited."
+                : "Attempts have started, so the paper is locked."}
+            {!canSeeKey ? " The answer key is hidden for reviewers." : ""}
           </p>
           <ol className="plain">
             {questions.map((q, i) => (
@@ -493,9 +506,11 @@ export function QuizPanel({ event, canManage }: { event: EventRow; canManage: bo
                   {q.options.map((o, oi) => (
                     <li
                       key={`${i}-${oi}-${o}`}
-                      style={{ color: oi === q.correctOptionIndex ? "var(--good)" : undefined }}
+                      style={{
+                        color: canSeeKey && oi === q.correctOptionIndex ? "var(--good)" : undefined,
+                      }}
                     >
-                      {oi === q.correctOptionIndex ? "✓ " : ""}
+                      {canSeeKey && oi === q.correctOptionIndex ? "✓ " : ""}
                       {o}
                     </li>
                   ))}

@@ -58,18 +58,23 @@ const nav = async (page, label) => {
   await page.click(`nav.tabs button:has-text("${label}")`);
 };
 
-const subtab = (page, label) => page.click(`.subtabs button:has-text("${label}")`);
+const subtab = (page, label) => page.click(`.event-nav button:has-text("${label}")`);
 
-/** Search the coordinator table, then open the row's own Open button. */
+/**
+ * The events page now shows one event at a time: search the list, open a card,
+ * and use the workspace navigation. "All events" returns to the list.
+ */
 async function openEvent(page, search, title) {
   await nav(page, "Events");
-  // The events table has its own filter; the top bar is global search (Ctrl+K).
-  await page.fill('input[placeholder="Title contains…"]', search);
-  await page.keyboard.press("Enter");
-  const row = page.locator("table.grid tbody tr", { hasText: title }).first();
-  await row.waitFor();
-  await row.locator('button:has-text("Open")').click();
-  await page.waitForSelector(".subtabs");
+  const back = page.locator('button:has-text("All events")');
+  if ((await back.count()) > 0 && (await back.first().isVisible())) await back.first().click();
+  const searchBox = page.locator('input[placeholder="Search events…"]');
+  await searchBox.waitFor();
+  await searchBox.fill(search);
+  const card = page.locator("button.event-card", { hasText: title }).first();
+  await card.waitFor();
+  await card.click();
+  await page.waitForSelector(".event-nav");
 }
 
 try {
@@ -89,6 +94,34 @@ try {
   const lead = await session("coding.lead@demo.campusops.local");
   await openEvent(lead.page, "Placement Drive", "Placement Drive · Backend Engineer");
   ok("coordinator opens a quiz-admission event workspace");
+  if ((await lead.page.locator('input[placeholder="Search events…"]').count()) === 0)
+    ok("the event list gives way to the selected event");
+  else throw new Error("the event list stayed beside the selected event");
+
+  // Oversight can review an event in its department, but never gets the
+  // coordinator's authoring or publishing controls.
+  const hodLogin = await api("/auth/login", {
+    email: "hoddean.cse@demo.campusops.local",
+    password: PW,
+    client: "web",
+  });
+  const hodManaged = await api("/me/events?limit=5", undefined, hodLogin.accessToken);
+  if (hodManaged.items.length === 0) throw new Error("HOD/Dean has no event to review");
+  const review = hodManaged.items[0];
+  const hod = await session("hoddean.cse@demo.campusops.local");
+  await openEvent(hod.page, review.title, review.title);
+  const hodNav = await hod.page.locator(".event-nav").innerText();
+  if (!/Edit details/.test(hodNav)) ok("HOD/Dean gets no event editing tab");
+  else throw new Error("HOD/Dean was offered Edit details");
+  if ((await hod.page.locator('button:has-text("Publish event")').count()) === 0)
+    ok("HOD/Dean cannot publish or revise an event");
+  else throw new Error("HOD/Dean was offered the publish control");
+  await subtab(hod.page, "Approvals");
+  const hodApprovals = await hod.page.locator(".event-content").innerText();
+  if (!/Build the permission bundle/.test(hodApprovals))
+    ok("HOD/Dean sees decisions without the coordinator's bundle builder");
+  else throw new Error("HOD/Dean was offered the permission bundle builder");
+  await hod.ctx.close();
 
   // Participants tab
   await subtab(lead.page, "Participants");

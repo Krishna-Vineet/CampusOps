@@ -343,6 +343,15 @@ describe("access QR configuration in the portal", () => {
       tokens.faculty,
     );
     expect(faculty.status).toBe(403);
+    // Oversight can read the rules and the scan log, but changing them is the
+    // coordinators' job.
+    const admin = await req(
+      "POST",
+      `/api/v1/events/${ids.event}/checkpoints`,
+      { name: "Admin made", qrType: "ONE_TIME", validityMode: "MANUAL" },
+      tokens.admin,
+    );
+    expect(admin.status).toBe(403);
   });
 
   test("a counter can be added while the event is already running", async () => {
@@ -484,6 +493,8 @@ describe("scanning at the counter", () => {
     expect(res.status).toBe(403);
     const unrelated = await mintThenScan(ids.entry as string, "student", "unrelatedFaculty");
     expect(unrelated.status).toBe(403);
+    const admin = await mintThenScan(ids.entry as string, "student", "admin");
+    expect(admin.status).toBe(403);
   });
 
   test("a meal grants once; a second attempt says the turns are used", async () => {
@@ -894,7 +905,7 @@ describe("the record the portal shows", () => {
       .where(eq(scanLogs.eventId, ids.event as string));
     const scanners = new Set(logs.map((l) => l.scannerId));
     for (const id of scanners) {
-      expect([ids.lead, ids.coordinator, ids.faculty, ids.admin]).toContain(id);
+      expect([ids.lead, ids.coordinator, ids.faculty]).toContain(id);
     }
   });
 });

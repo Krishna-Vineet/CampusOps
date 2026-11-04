@@ -627,6 +627,23 @@ describe("quiz editing guards", () => {
     expect(JSON.stringify(res.json.data)).not.toContain("correctOptionIndex");
   });
 
+  test("reviewers can read the paper but never the answer key", async () => {
+    const organiser = await req("GET", `/api/v1/events/${ids.firstQ}/quiz`, undefined, tokens.lead);
+    expect(organiser.status).toBe(200);
+    expect(organiser.json.data.canSeeAnswerKey).toBe(true);
+    expect(organiser.json.data.questions[0].correctOptionIndex).toBeNumber();
+
+    const oversight = await req(
+      "GET",
+      `/api/v1/events/${ids.firstQ}/quiz`,
+      undefined,
+      tokens.admin,
+    );
+    expect(oversight.status).toBe(200);
+    expect(oversight.json.data.canSeeAnswerKey).toBe(false);
+    expect(JSON.stringify(oversight.json.data)).not.toContain("correctOptionIndex");
+  });
+
   test("closing a quiz expires an attempt still in progress", async () => {
     const { db } = getDb();
     const eventId = await makeEvent(`expire-${rnd()}`, "QUIZ_TOP_N", 5);

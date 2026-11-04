@@ -69,7 +69,7 @@ export type BundleSummary = {
 
 export type EventBundle = {
   event: EventRow;
-  club: { id: string; name: string };
+  club: { id: string; name: string; departmentId?: string | null };
   bundle: { id: string; createdAt: string } | null;
   requests: Array<{
     request: ApprovalRequestRow;
@@ -91,6 +91,21 @@ export type EventBundle = {
     } | null;
   }>;
   summary: BundleSummary;
+  history: Array<{
+    action: {
+      id: string;
+      requestId: string;
+      action: string;
+      comment: string | null;
+      createdAt: string;
+      fromStatus: ApprovalStatus | null;
+      toStatus: ApprovalStatus | null;
+      fromTier: ApprovalTier | null;
+      toTier: ApprovalTier | null;
+    };
+    actor: { id: string; fullName: string } | null;
+    requestTitle: string;
+  }>;
 };
 
 export type InboxItem = {

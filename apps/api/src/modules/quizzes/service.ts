@@ -22,6 +22,7 @@ import {
   users,
 } from "../../db/schema";
 import type { AuthContext } from "../../middleware/auth";
+import { isClubCoordinator } from "../../middleware/event-scope";
 import { ApiError } from "../../utils/api-error";
 import { type AuditContext, insertAudit } from "../audit/service";
 import { getVisibleEvent } from "../events/visibility";
@@ -100,10 +101,18 @@ function orderForAttempt<T extends { id: string }>(
 
 // ── Coordinator: configure ──────────────────────────────────────────────────
 
-export async function getForOrganiser(eventId: string) {
+export async function getForOrganiser(auth: AuthContext, eventId: string) {
   const { db } = getDb();
   const [quiz] = await db.select().from(quizzes).where(eq(quizzes.eventId, eventId)).limit(1);
-  if (!quiz) return { quiz: null, questions: [], stats: null };
+  if (!quiz) return { quiz: null, questions: [], stats: null, canSeeAnswerKey: false };
+  const [event] = await db
+    .select({ clubId: events.clubId })
+    .from(events)
+    .where(eq(events.id, eventId))
+    .limit(1);
+  // Reviewers (Faculty, HOD/Dean, Admin) can inspect the paper and results but
+  // the answer key belongs to the event's coordinators.
+  const canSeeAnswerKey = Boolean(event && isClubCoordinator(auth, event.clubId));
   const questions = await loadQuestions(quiz.id);
   const [attemptStats] = await db
     .select({
@@ -117,9 +126,16 @@ export async function getForOrganiser(eventId: string) {
     .where(eq(quizAttempts.quizId, quiz.id));
   return {
     quiz: { ...quiz, passScore: numeric(quiz.passScore), seats: quiz.seats },
-    // Organisers legitimately hold the answer key.
-    questions: questions.map((q) => ({ ...q, points: numeric(q.points) })),
+    questions: questions.map((q) => {
+      const { correctOptionIndex, ...paper } = q;
+      return {
+        ...paper,
+        ...(canSeeAnswerKey ? { correctOptionIndex } : {}),
+        points: numeric(q.points),
+      };
+    }),
     stats: attemptStats ?? { total: 0, submitted: 0, inProgress: 0, expired: 0, qualified: 0 },
+    canSeeAnswerKey,
   };
 }
 

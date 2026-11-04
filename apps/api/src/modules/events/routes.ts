@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { authenticate, requireActiveAccount } from "../../middleware/auth";
 import { requireClubManage, requireClubRead } from "../../middleware/club-scope";
-import { requireEventManage, requireEventOperationalRead } from "../../middleware/event-scope";
+import {
+  requireEventManage,
+  requireEventOperationalRead,
+  requireEventOrganiserRead,
+} from "../../middleware/event-scope";
 import { idempotent } from "../../middleware/idempotency";
 import { rateLimit } from "../../middleware/rate-limit";
 import { parseJson, parseQuery } from "../../middleware/validate";
@@ -161,7 +165,7 @@ eventRoutes.get("/:id/reservations", requireEventOperationalRead(), async (c) =>
   ok(c, { items: await eventReservations(c.req.param("id")) }),
 );
 
-eventRoutes.get("/:id/invitations", requireEventManage(), async (c) =>
+eventRoutes.get("/:id/invitations", requireEventOrganiserRead(), async (c) =>
   ok(c, { items: await service.listInvitations(c.get("auth"), c.req.param("id")) }),
 );
 
