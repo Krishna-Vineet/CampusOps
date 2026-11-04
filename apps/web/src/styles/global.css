@@ -4391,9 +4391,15 @@ button.scope-option.active strong {
   .events-rail {
     position: static;
     max-height: none;
-    order: 2;
+    order: 1;
   }
   .events-stage {
+    order: 2;
+  }
+  .events-layout.has-selection .events-rail {
+    order: 2;
+  }
+  .events-layout.has-selection .events-stage {
     order: 1;
   }
   .event-workspace {

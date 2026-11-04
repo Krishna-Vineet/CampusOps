@@ -510,7 +510,7 @@ export function CoordinatorPanel({
           ))}
         </div>
 
-        <div className="events-layout">
+        <div className={selected ? "events-layout has-selection" : "events-layout"}>
           <aside className="events-rail" aria-label="Event list">
             <div className="rail-meta">
               {eventsTotal} event{eventsTotal === 1 ? "" : "s"}
