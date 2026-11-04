@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
 import { getDb } from "../src/db/client";
 import {
+  events,
   clubMemberships,
   clubs,
   departments,
@@ -148,6 +149,30 @@ beforeAll(async () => {
   expect(draft.status).toBe(201);
   expect(draft.json.data.status).toBe("DRAFT");
   ids.draft = draft.json.data.id;
+
+  const publicStart = new Date(startsAt);
+  publicStart.setDate(publicStart.getDate() + 1);
+  const publicEnd = new Date(publicStart);
+  publicEnd.setHours(12, 0, 0, 0);
+  const [publicEvent] = await db
+    .insert(events)
+    .values({
+      clubId: otherClub.id,
+      createdBy: adminId,
+      title: `${prefix} Public Showcase`,
+      slug: `${prefix}-public-showcase`,
+      status: "PUBLISHED",
+      audience: "COLLEGE_ONLY",
+      capacity: 50,
+      startsAt: publicStart,
+      endsAt: publicEnd,
+      registrationOpensAt: new Date(Date.now() - 86_400_000),
+      registrationClosesAt: publicStart,
+      publishedAt: new Date(),
+    })
+    .returning();
+  if (!publicEvent) throw new Error("public event insert failed");
+  ids.publicEvent = publicEvent.id;
 });
 
 describe("global search identity", () => {
@@ -199,5 +224,11 @@ describe("global search event scope", () => {
       expect(res.status).toBe(200);
       expect(res.json.data.events.map((e: Body) => e.id)).not.toContain(ids.draft);
     }
+  });
+
+  test("published events outside the club stay discoverable", async () => {
+    const res = await request("GET", "/search?q=Showcase", tokens.lead);
+    expect(res.status).toBe(200);
+    expect(res.json.data.events.map((e: Body) => e.id)).toContain(ids.publicEvent);
   });
 });

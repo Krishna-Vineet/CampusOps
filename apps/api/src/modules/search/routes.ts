@@ -37,9 +37,16 @@ searchRoutes.get("/", async (c) => {
 
   const managesEvents =
     hasRole(auth, "ADMIN") || hasRole(auth, "HOD_DEAN") || auth.memberships.length > 0;
-  const eventPage = managesEvents
-    ? await myManagedEvents(auth, { limit, offset: 0, q })
-    : await listVisibleEvents(auth, { limit, offset: 0, q });
+  // Managed events carry every status, drafts included. Published events the
+  // caller may simply attend are merged in so global search still discovers
+  // them; the dedupe keeps a club's own event from appearing twice.
+  const [managedPage, visiblePage] = await Promise.all([
+    managesEvents ? myManagedEvents(auth, { limit, offset: 0, q }) : Promise.resolve(null),
+    listVisibleEvents(auth, { limit, offset: 0, q }),
+  ]);
+  const eventItems = [...(managedPage?.items ?? []), ...visiblePage.items]
+    .filter((event, index, all) => all.findIndex((other) => other.id === event.id) === index)
+    .slice(0, limit);
   const memberClubIds = auth.memberships.map((m) => m.clubId);
   const seesAllClubs =
     hasRole(auth, "ADMIN") || hasRole(auth, "HOD_DEAN") || hasRole(auth, "FACULTY");
@@ -123,7 +130,7 @@ searchRoutes.get("/", async (c) => {
 
   return ok(c, {
     query: q,
-    events: eventPage.items.map((e) => ({
+    events: eventItems.map((e) => ({
       id: e.id,
       title: e.title,
       status: e.status,
