@@ -329,6 +329,7 @@ nav.tabs button {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: start;
   gap: 11px;
   width: 100%;
   text-align: left;
@@ -3119,7 +3120,9 @@ dl.kv dd {
 /* ── Field extras ─────────────────────────────────────────────────────── */
 .input-group {
   position: relative;
-  display: block;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 .input-group input {
   padding-right: 40px;
@@ -3127,8 +3130,6 @@ dl.kv dd {
 .input-reveal {
   position: absolute;
   right: 3px;
-  top: 50%;
-  transform: translateY(-50%);
   width: 30px;
   height: 30px;
   min-height: 0;

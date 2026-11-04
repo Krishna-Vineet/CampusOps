@@ -723,7 +723,7 @@ function Shell() {
             </button>
           </div>
           <div className="sidebar-credit">
-            <span>CampusOps · v2</span>
+            <span>CampusOps</span>
             <b>
               <span className="credit-dot" />
               Made by Vineet

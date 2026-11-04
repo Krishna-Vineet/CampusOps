@@ -90,7 +90,7 @@ export const DashboardPanel = memo(function DashboardPanel({
   const now = Date.now();
   const hour = new Date(now).getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const firstName = me?.user.fullName.split(" ")[0] ?? "there";
+  const firstName = me?.user.fullName ?? "there";
 
   const nextEvent = useMemo(() => {
     if (!data?.upcoming.length) return null;
