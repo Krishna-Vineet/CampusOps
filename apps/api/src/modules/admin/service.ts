@@ -1,9 +1,11 @@
-import { type SQL, and, count, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { STAFF_POSITION_LABELS, inferStaffPosition } from "@campusops/shared";
+import { type SQL, and, count, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { getDb } from "../../db/client";
 import {
   clubMemberships,
   clubs,
+  departments,
   roleAssignments,
   sessions,
   staffProfiles,
@@ -16,11 +18,77 @@ import { type AuditContext, insertAudit } from "../audit/service";
 import { publicUser } from "../auth/service";
 import type {
   grantRoleSchema,
+  listStaffSchema,
   listUsersSchema,
   provisionStaffSchema,
   reactivateSchema,
   suspendSchema,
 } from "./schemas";
+
+export async function listStaff(input: z.infer<typeof listStaffSchema>) {
+  const { db } = getDb();
+  const filters: SQL[] = [eq(users.accountType, "STAFF")];
+  if (input.status) filters.push(eq(users.status, input.status));
+  if (input.departmentId) filters.push(eq(staffProfiles.departmentId, input.departmentId));
+  if (input.position) filters.push(eq(staffProfiles.position, input.position));
+  if (input.q) {
+    const q = or(
+      ilike(users.email, `%${input.q}%`),
+      ilike(users.fullName, `%${input.q}%`),
+      ilike(users.phone ?? users.email, `%${input.q}%`),
+    );
+    if (q) filters.push(q);
+  }
+  const where = and(...filters);
+  const rows = await db
+    .select({
+      user: users,
+      staff: staffProfiles,
+      departmentName: departments.name,
+    })
+    .from(users)
+    .innerJoin(staffProfiles, eq(staffProfiles.userId, users.id))
+    .leftJoin(departments, eq(departments.id, staffProfiles.departmentId))
+    .where(where)
+    .orderBy(users.fullName, users.id)
+    .limit(input.limit + 1)
+    .offset(input.offset);
+  const [totalRow] = await db
+    .select({ n: count() })
+    .from(users)
+    .innerJoin(staffProfiles, eq(staffProfiles.userId, users.id))
+    .where(where);
+  const pageRows = rows.slice(0, input.limit);
+  const roleRows = pageRows.length
+    ? await db
+        .select({ userId: roleAssignments.userId, role: roleAssignments.role })
+        .from(roleAssignments)
+        .where(
+          and(
+            inArray(
+              roleAssignments.userId,
+              pageRows.map((r) => r.user.id),
+            ),
+            eq(roleAssignments.isActive, true),
+          ),
+        )
+    : [];
+  return {
+    items: pageRows.map((r) => ({
+      ...publicUser(r.user),
+      phone: r.user.phone,
+      departmentId: r.staff.departmentId,
+      departmentName: r.departmentName,
+      designation: r.staff.designation,
+      position: r.staff.position,
+      roles: roleRows.filter((x) => x.userId === r.user.id).map((x) => x.role),
+    })),
+    total: totalRow?.n ?? 0,
+    limit: input.limit,
+    offset: input.offset,
+    hasMore: rows.length > input.limit,
+  };
+}
 
 export async function listUsers(input: z.infer<typeof listUsersSchema>) {
   const { db } = getDb();
@@ -96,6 +164,8 @@ export async function provisionStaff(
   audit?: AuditContext,
 ) {
   const { db } = getDb();
+  const position = input.position ?? inferStaffPosition(input.designation);
+  const designation = input.designation ?? STAFF_POSITION_LABELS[position];
   try {
     const user = await db.transaction(async (tx) => {
       const [u] = await tx
@@ -114,14 +184,20 @@ export async function provisionStaff(
         userId: u.id,
         employeeCode: input.employeeCode ?? null,
         departmentId: input.departmentId ?? null,
-        designation: input.designation,
+        designation,
+        position,
       });
       if (audit)
         await insertAudit(tx, audit, {
           action: "ADMIN_STAFF_PROVISIONED",
           entityType: "user",
           entityId: u.id,
-          after: { email: u.email, designation: input.designation },
+          after: {
+            email: u.email,
+            designation,
+            position,
+            departmentId: input.departmentId ?? null,
+          },
         });
       return u;
     });

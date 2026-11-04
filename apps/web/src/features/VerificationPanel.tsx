@@ -43,7 +43,7 @@ type Department = { id: string; name: string };
  * this is the staff side of that flow. Only FACULTY may decide — HOD/Dean can
  * review the queue but the API restricts the decision itself to faculty.
  */
-export function VerificationPanel() {
+export function VerificationPanel({ onChanged }: { onChanged?: () => void } = {}) {
   const { isFaculty } = useSession();
   const toast = useToast();
   const action = useAction();
@@ -112,6 +112,7 @@ export function VerificationPanel() {
       await api(`/faculty/students/${detail.user.id}/verify`, {});
       setDetail(null);
       await load();
+      onChanged?.();
       return "Student verified. They can now register for events.";
     });
   }
@@ -123,6 +124,7 @@ export function VerificationPanel() {
       setReject(null);
       setDetail(null);
       await load();
+      onChanged?.();
       return "Student rejected. The reason is visible to them.";
     });
   }

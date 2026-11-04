@@ -88,7 +88,8 @@ export function CoordinatorPanel({
   onFocusConsumed,
   newDraftSignal,
 }: { focusEventId?: string | null; onFocusConsumed?: () => void; newDraftSignal?: number } = {}) {
-  const { isCoordinator } = useSession();
+  const { isCoordinator, isAdmin, isSenior } = useSession();
+  const oversight = isAdmin || isSenior;
   const toast = useToast();
   const draftSignal = newDraftSignal ?? 0;
   const [clubs, setClubs] = useState<ClubRow[]>([]);
@@ -290,11 +291,15 @@ export function CoordinatorPanel({
       <SuccessNote message={notice} />
 
       <Card
-        title={isCoordinator ? "My club events" : "Club events (read-only)"}
+        title={oversight ? "Events (oversight)" : isCoordinator ? "My club events" : "Club events"}
         subtitle={
-          isCoordinator
-            ? "Every draft, submission and published event across the clubs you lead."
-            : "Read-only view of the clubs you are faculty for."
+          oversight
+            ? isAdmin
+              ? "Every club's drafts, submissions and published events across the institution."
+              : "Every club's events in the departments you head."
+            : isCoordinator
+              ? "Every draft, submission and published event across the clubs you lead."
+              : "Read-only view of the clubs you are faculty for."
         }
         actions={
           <button
@@ -336,9 +341,11 @@ export function CoordinatorPanel({
         </div>
         {loading ? (
           <SkeletonRows rows={4} />
-        ) : clubs.length === 0 ? (
-          <Empty title="No club yet" icon="users">
-            You are not an active coordinator of any club. A club lead or administrator can add you.
+        ) : clubs.length === 0 && events.length === 0 ? (
+          <Empty title="No events yet" icon="calendar">
+            {oversight
+              ? "No club events are in scope yet."
+              : "You are not an active coordinator of any club. A club lead or administrator can add you."}
           </Empty>
         ) : events.length === 0 ? (
           <Empty

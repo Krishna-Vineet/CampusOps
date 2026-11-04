@@ -128,6 +128,10 @@ adminRoutes.get("/audit", async (c) => {
   });
 });
 
+adminRoutes.get("/staff", async (c) =>
+  ok(c, await service.listStaff(parseQuery(c, schemas.listStaffSchema))),
+);
+
 adminRoutes.get("/users", async (c) =>
   ok(c, await service.listUsers(parseQuery(c, schemas.listUsersSchema))),
 );

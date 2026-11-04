@@ -33,6 +33,13 @@ export const accountStatus = pgEnum("account_status", [
 export const globalRole = pgEnum("global_role", ["ADMIN", "FACULTY", "HOD_DEAN", "SUPPORT"]);
 export const roleScope = pgEnum("role_scope", ["GLOBAL", "DEPARTMENT"]);
 export const clubRole = pgEnum("club_role", ["LEAD", "COORDINATOR", "FACULTY"]);
+export const staffPosition = pgEnum("staff_position", [
+  "HOD",
+  "DEAN",
+  "PROFESSOR",
+  "ASSISTANT_PROFESSOR",
+  "OTHER",
+]);
 export const eventTemplate = pgEnum("event_template", [
   "WORKSHOP",
   "SEMINAR",
@@ -253,16 +260,24 @@ export const studentProfiles = pgTable(
   ],
 );
 
-export const staffProfiles = pgTable("staff_profiles", {
-  userId: uuid("user_id")
-    .primaryKey()
-    .references(() => users.id, { onDelete: "cascade" }),
-  employeeCode: text("employee_code").unique(),
-  departmentId: uuid("department_id").references(() => departments.id),
-  designation: text("designation").notNull(),
-  photoFileId: uuid("photo_file_id").references(() => files.id),
-  updatedAt: updatedAt(),
-});
+export const staffProfiles = pgTable(
+  "staff_profiles",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    employeeCode: text("employee_code").unique(),
+    departmentId: uuid("department_id").references(() => departments.id),
+    designation: text("designation").notNull(),
+    position: staffPosition("position").notNull().default("OTHER"),
+    photoFileId: uuid("photo_file_id").references(() => files.id),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("staff_profiles_position_idx").on(t.position),
+    index("staff_profiles_department_idx").on(t.departmentId),
+  ],
+);
 
 export const sessions = pgTable(
   "sessions",

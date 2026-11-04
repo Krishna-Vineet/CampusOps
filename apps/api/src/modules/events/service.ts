@@ -46,7 +46,7 @@ import {
   studentProfiles,
   users,
 } from "../../db/schema";
-import { type AuthContext, hasRole } from "../../middleware/auth";
+import { type AuthContext, departmentScope, hasRole } from "../../middleware/auth";
 import { hasEventOversight, isClubCoordinator, isClubLead } from "../../middleware/event-scope";
 import { ApiError } from "../../utils/api-error";
 import { isExclusionViolation, isUniqueViolation } from "../../utils/db-error";
@@ -1077,9 +1077,23 @@ export async function myManagedEvents(
   const { db } = getDb();
   const limit = input.limit ?? 50;
   const offset = input.offset ?? 0;
-  const clubIds = auth.memberships.map((m) => m.clubId);
-  if (clubIds.length === 0) return { items: [], total: 0, limit, offset, hasMore: false };
-  const filters: SQL[] = [inArray(events.clubId, clubIds)];
+  const admin = hasRole(auth, "ADMIN");
+  const senior = departmentScope(auth, "HOD_DEAN");
+  const filters: SQL[] = [];
+  if (!admin && !senior.global) {
+    // Admin sees the institution; an HOD/Dean sees their department's clubs.
+    // Club leads and coordinators keep their own clubs either way.
+    const scopedClubIds = new Set(auth.memberships.map((m) => m.clubId));
+    if (senior.departmentIds.length) {
+      const deptClubs = await db
+        .select({ id: clubs.id })
+        .from(clubs)
+        .where(inArray(clubs.departmentId, senior.departmentIds));
+      for (const club of deptClubs) scopedClubIds.add(club.id);
+    }
+    if (scopedClubIds.size === 0) return { items: [], total: 0, limit, offset, hasMore: false };
+    filters.push(inArray(events.clubId, [...scopedClubIds]));
+  }
   if (input.status) filters.push(eq(events.status, input.status));
   if (input.q) filters.push(ilike(events.title, `%${input.q}%`));
   const where = and(...filters);

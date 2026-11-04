@@ -22,6 +22,20 @@ export function pgCode(err: unknown): string | undefined {
   return undefined;
 }
 
+export function pgDetail(err: unknown): string | undefined {
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  while (typeof current === "object" && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if ("detail" in current) {
+      const detail = (current as { detail?: unknown }).detail;
+      if (typeof detail === "string") return detail;
+    }
+    current = "cause" in current ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return undefined;
+}
+
 export function pgConstraint(err: unknown): string | undefined {
   const seen = new Set<unknown>();
   let current: unknown = err;

@@ -62,3 +62,36 @@ export const CLUB_ROLE_LABELS: Record<ClubRole, string> = {
   COORDINATOR: "Coordinator",
   FACULTY: "Club faculty",
 };
+
+/**
+ * Staff positions are an HR label, separate from access roles. A Professor is
+ * usually FACULTY; an HOD also gets the department-scoped HOD_DEAN role. Keeping
+ * the two separate avoids granting access just by editing a directory entry.
+ */
+export const STAFF_POSITIONS = [
+  "HOD",
+  "DEAN",
+  "PROFESSOR",
+  "ASSISTANT_PROFESSOR",
+  "OTHER",
+] as const;
+export type StaffPosition = (typeof STAFF_POSITIONS)[number];
+
+export const STAFF_POSITION_LABELS: Record<StaffPosition, string> = {
+  HOD: "HOD",
+  DEAN: "Dean",
+  PROFESSOR: "Professor",
+  ASSISTANT_PROFESSOR: "Assistant Professor",
+  OTHER: "Others",
+};
+
+/** Best-effort mapping for staff rows that predate the position column. */
+export function inferStaffPosition(designation: string | null | undefined): StaffPosition {
+  const value = (designation ?? "").toLowerCase();
+  if (!value) return "OTHER";
+  if (value.includes("assistant professor")) return "ASSISTANT_PROFESSOR";
+  if (value.includes("dean")) return "DEAN";
+  if (value.includes("hod") || value.includes("head")) return "HOD";
+  if (value.includes("professor")) return "PROFESSOR";
+  return "OTHER";
+}
