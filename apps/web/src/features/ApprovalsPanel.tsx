@@ -13,7 +13,7 @@ import {
 import { type Page, api, errorMessage, query } from "../lib/api";
 import type { ApprovalRequestRow, Approver, InboxItem, RequestDetail } from "../lib/types";
 
-export function ApprovalsPanel() {
+export function ApprovalsPanel({ onChanged }: { onChanged?: () => void } = {}) {
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [detail, setDetail] = useState<RequestDetail | null>(null);
   const [comment, setComment] = useState("");
@@ -66,6 +66,7 @@ export function ApprovalsPanel() {
       setNotice(message);
       setDetail(null);
       await load();
+      onChanged?.();
     } catch (err) {
       setError(errorMessage(err));
       // A stale version means someone else acted: refresh so the UI is honest.
@@ -92,6 +93,7 @@ export function ApprovalsPanel() {
       setNotice("Request reassigned. The previous ask stays in the history.");
       setDetail(null);
       await load();
+      onChanged?.();
     } catch (err) {
       setError(errorMessage(err));
     } finally {

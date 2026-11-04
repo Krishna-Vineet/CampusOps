@@ -27,12 +27,14 @@ import type { EventRow } from "./lib/types";
 const loaders = {
   account: () => import("./features/AccountPanel").then((m) => ({ default: m.AccountPanel })),
   admin: () => import("./features/AdminPanel").then((m) => ({ default: m.AdminPanel })),
+  audit: () => import("./features/AuditPanel").then((m) => ({ default: m.AuditPanel })),
   approvals: () => import("./features/ApprovalsPanel").then((m) => ({ default: m.ApprovalsPanel })),
   clubs: () => import("./features/ClubsPanel").then((m) => ({ default: m.ClubsPanel })),
   events: () =>
     import("./features/CoordinatorPanel").then((m) => ({ default: m.CoordinatorPanel })),
   reports: () => import("./features/ReportsPanel").then((m) => ({ default: m.ReportsPanel })),
   resources: () => import("./features/ResourcesPanel").then((m) => ({ default: m.ResourcesPanel })),
+  students: () => import("./features/StudentsPanel").then((m) => ({ default: m.StudentsPanel })),
   verification: () =>
     import("./features/VerificationPanel").then((m) => ({ default: m.VerificationPanel })),
 };
@@ -41,11 +43,13 @@ const loaders = {
 // whole workspace underneath it.
 const AccountPanel = memo(lazy(loaders.account));
 const AdminPanel = memo(lazy(loaders.admin));
+const AuditPanel = memo(lazy(loaders.audit));
 const ApprovalsPanel = memo(lazy(loaders.approvals));
 const ClubsPanel = memo(lazy(loaders.clubs));
 const CoordinatorPanel = memo(lazy(loaders.events));
 const ReportsPanel = memo(lazy(loaders.reports));
 const ResourcesPanel = memo(lazy(loaders.resources));
+const StudentsPanel = memo(lazy(loaders.students));
 const VerificationPanel = memo(lazy(loaders.verification));
 
 type Health = { status: string; phase: number; checks: { database: string } };
@@ -60,10 +64,12 @@ type Tab =
   | "events"
   | "approvals"
   | "verification"
+  | "students"
   | "resources"
   | "clubs"
   | "reports"
   | "admin"
+  | "audit"
   | "account";
 
 const TAB_META: Record<
@@ -79,10 +85,12 @@ const TAB_META: Record<
     icon: "shield",
     group: "Workspace",
   },
+  students: { label: "Students", short: "Students", icon: "graduation", group: "Workspace" },
   resources: { label: "Resources", short: "Resources", icon: "box", group: "Institution" },
   clubs: { label: "Clubs", short: "Clubs", icon: "users", group: "Institution" },
   reports: { label: "Reports", short: "Reports", icon: "file", group: "Institution" },
   admin: { label: "Administration", short: "Admin", icon: "settings", group: "Institution" },
+  audit: { label: "Audit trail", short: "Audit", icon: "clock", group: "Institution" },
   account: { label: "Account", short: "Account", icon: "user", group: "You" },
 };
 const SECTION_LEDE: Record<Tab, string> = {
@@ -93,12 +101,14 @@ const SECTION_LEDE: Record<Tab, string> = {
     "One decision per permission. Approve it, ask for a change, or send it up the chain. Every action is kept on the request's trail.",
   verification:
     "Check college IDs and keep student profiles accurate. Verification is limited to faculty and department heads.",
+  students: "Every student account, their department and verification state in one directory.",
   resources: "Rooms, labs and equipment with holds the database refuses to double-book.",
   clubs:
     "Club structure, coordinators and club faculty. Faculty membership is owned by the HOD or Dean.",
   reports:
     "Immutable event records as PDF: the approval trail, resources used, attendance, and a checksum that can be re-verified.",
-  admin: "Institutional authority: accounts, roles, departments, programmes and maintenance.",
+  admin: "Staff directory and departments. Positions describe the job; roles grant access.",
+  audit: "An append-only record of who changed what, kept for institutional review.",
   account: "Your profile, roles, password and active sessions.",
 };
 const TABS = Object.keys(TAB_META) as Tab[];
@@ -288,12 +298,13 @@ function Shell() {
 
   const available = useMemo(() => {
     const list: Tab[] = ["dashboard"];
-    if (isClubMember) list.push("events");
+    if (isClubMember || isAdmin || isSenior) list.push("events");
     if (isStaff) list.push("approvals");
     if (isFaculty || isSenior) list.push("verification");
+    if (isAdmin || isSenior) list.push("students");
     list.push("resources");
     if (isClubMember || isStaff) list.push("clubs", "reports");
-    if (isAdmin) list.push("admin");
+    if (isAdmin) list.push("admin", "audit");
     list.push("account");
     return list;
   }, [isClubMember, isStaff, isFaculty, isSenior, isAdmin]);
@@ -301,12 +312,30 @@ function Shell() {
   const active: Tab = tab && allowed.has(tab) ? tab : "dashboard";
   const mayUseConsole = isStaff || isClubMember;
 
-  useEffect(() => {
+  const refreshDash = useCallback(() => {
     if (!me) return;
     api<DashboardData>("/me/dashboard")
       .then(setDash)
       .catch(() => {});
   }, [me]);
+
+  useEffect(() => {
+    refreshDash();
+  }, [refreshDash]);
+
+  // The badge is a server-side count. Coming back to the tab (or focusing the
+  // window) is a cheap moment to re-sync it after an action in another view.
+  useEffect(() => {
+    function sync() {
+      if (document.visibilityState === "visible") refreshDash();
+    }
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, [refreshDash]);
 
   const navigate = useCallback((next: string) => {
     setDrawer(false);
@@ -359,7 +388,11 @@ function Shell() {
     </button>
   );
 
-  const pageTitle = TAB_META[active].label;
+  // Members of a club only see their own clubs, so the section reads "My club"
+  // for them. Admin and HOD/Dean keep the institution/department-wide label.
+  const tabLabel = (t: Tab) =>
+    t === "clubs" && !isAdmin && !isSenior ? "My club" : TAB_META[t].label;
+  const pageTitle = tabLabel(active);
   const attention = dash
     ? dash.work.approvalsPending + dash.work.verificationPending + dash.work.openComplaints
     : 0;
@@ -681,7 +714,7 @@ function Shell() {
                         onFocus={() => prefetch(t)}
                       >
                         <Icon name={TAB_META[t].icon} size={17} />
-                        {TAB_META[t].label}
+                        {tabLabel(t)}
                         {count ? <span className="nav-count">{count}</span> : null}
                       </button>
                     );
@@ -1038,7 +1071,7 @@ function Shell() {
               <div className="page-head">
                 <div>
                   <p className="eyebrow">{TAB_META[active].group}</p>
-                  <h1>{TAB_META[active].label}</h1>
+                  <h1>{tabLabel(active)}</h1>
                   <p className="lead">{SECTION_LEDE[active]}</p>
                 </div>
               </div>
@@ -1048,19 +1081,23 @@ function Shell() {
                 {active === "dashboard" && (
                   <DashboardPanel onNavigate={navigate} onOpenEvent={openEvent} />
                 )}
-                {active === "events" && isClubMember && (
+                {active === "events" && (isClubMember || isAdmin || isSenior) && (
                   <CoordinatorPanel
                     focusEventId={focusEvent}
                     onFocusConsumed={consumeFocus}
                     newDraftSignal={newDraft}
                   />
                 )}
-                {active === "approvals" && isStaff && <ApprovalsPanel />}
-                {active === "verification" && (isFaculty || isSenior) && <VerificationPanel />}
+                {active === "approvals" && isStaff && <ApprovalsPanel onChanged={refreshDash} />}
+                {active === "verification" && (isFaculty || isSenior) && (
+                  <VerificationPanel onChanged={refreshDash} />
+                )}
+                {active === "students" && (isAdmin || isSenior) && <StudentsPanel />}
                 {active === "resources" && <ResourcesPanel />}
                 {active === "clubs" && (isClubMember || isStaff) && <ClubsPanel />}
                 {active === "reports" && (isClubMember || isStaff) && <ReportsPanel />}
                 {active === "admin" && isAdmin && <AdminPanel />}
+                {active === "audit" && isAdmin && <AuditPanel />}
                 {active === "account" && <AccountPanel />}
               </Suspense>
             </ErrorBoundary>

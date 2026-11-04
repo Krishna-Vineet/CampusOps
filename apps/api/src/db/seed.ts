@@ -46,6 +46,7 @@ async function main() {
             accountType: "STAFF",
             status: "ACTIVE",
             fullName: "Demo Principal",
+            phone: "+91 98100 00010",
             emailVerifiedAt: now,
           },
           {
@@ -55,6 +56,7 @@ async function main() {
             accountType: "STAFF",
             status: "ACTIVE",
             fullName: "Demo HOD/Dean",
+            phone: "+91 98100 00011",
             emailVerifiedAt: now,
           },
           {
@@ -64,6 +66,7 @@ async function main() {
             accountType: "STAFF",
             status: "ACTIVE",
             fullName: "Demo Faculty CSE",
+            phone: "+91 98100 00012",
             emailVerifiedAt: now,
           },
           {
@@ -161,26 +164,39 @@ async function main() {
       await tx
         .insert(s.staffProfiles)
         .values([
-          { userId: U(10), employeeCode: "DEMO-ADM-001", designation: "Principal" },
+          {
+            userId: U(10),
+            employeeCode: "DEMO-ADM-001",
+            designation: "Principal",
+            position: "OTHER",
+          },
           {
             userId: U(11),
             employeeCode: "DEMO-HOD-001",
             departmentId: U(1),
             designation: "HOD/Dean",
+            position: "HOD",
           },
           {
             userId: U(12),
             employeeCode: "DEMO-FAC-001",
             departmentId: U(1),
             designation: "Faculty",
+            position: "PROFESSOR",
           },
           {
             userId: U(13),
             employeeCode: "DEMO-FAC-002",
             departmentId: U(2),
             designation: "Faculty",
+            position: "PROFESSOR",
           },
-          { userId: U(20), employeeCode: "DEMO-SUP-001", designation: "IT Support" },
+          {
+            userId: U(20),
+            employeeCode: "DEMO-SUP-001",
+            designation: "IT Support",
+            position: "OTHER",
+          },
         ])
         .onConflictDoNothing();
 

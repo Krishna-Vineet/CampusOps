@@ -180,23 +180,7 @@ export function AccountPanel() {
         </Card>
 
         <div className="stack">
-          <Card title="Sessions" subtitle="How this console keeps you signed in.">
-            <ul className="plain">
-              <li>
-                <strong>Refresh token</strong>{" "}
-                <span className="meta">
-                  httpOnly cookie, unreadable by JavaScript, rotated on every refresh.
-                </span>
-              </li>
-              <li>
-                <strong>Access token</strong>{" "}
-                <span className="meta">held in memory only, never written to storage.</span>
-              </li>
-              <li>
-                <strong>Sign out everywhere</strong>{" "}
-                <span className="meta">revokes every refresh token on this account.</span>
-              </li>
-            </ul>
+          <Card title="Sessions">
             <div className="row">
               <button type="button" className="ghost" onClick={() => signOut(false)}>
                 <Icon name="logout" size={14} /> Sign out
@@ -206,33 +190,12 @@ export function AccountPanel() {
               </button>
             </div>
           </Card>
-
-          <Card title="About CampusOps">
-            <div className="about-card">
-              <div>
-                <span className="eyebrow">Management console</span>
-                <p className="meta" style={{ marginTop: 8 }}>
-                  Version 2.0 · built for frequent short events, the approvals around them and the
-                  record they leave behind.
-                </p>
-              </div>
-              <div className="about-sign">
-                <span>Made by</span>
-                <b>Vineet</b>
-              </div>
-            </div>
-            <p className="hint">
-              Students take part in the CampusOps mobile app. There is no student-facing web portal
-              by design.
-            </p>
-          </Card>
         </div>
       </div>
 
       <ConfirmDialog
         open={confirmAll}
-        title="Sign out of every device?"
-        description="All refresh tokens are revoked. You will need to sign in again here and anywhere else you are signed in."
+        title="Sign out everywhere?"
         confirmLabel="Sign out everywhere"
         busy={action.busy}
         onCancel={() => setConfirmAll(false)}

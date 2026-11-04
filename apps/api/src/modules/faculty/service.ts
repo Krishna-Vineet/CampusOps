@@ -1,7 +1,7 @@
-import { type SQL, and, eq, inArray, or } from "drizzle-orm";
+import { type SQL, and, count, eq, ilike, inArray, or } from "drizzle-orm";
 import type { z } from "zod";
 import { getDb } from "../../db/client";
-import { studentProfiles, users } from "../../db/schema";
+import { departments, studentProfiles, users } from "../../db/schema";
 import {
   type AuthContext,
   canAccessDepartment,
@@ -12,7 +12,76 @@ import { ApiError } from "../../utils/api-error";
 import { isUniqueViolation } from "../../utils/db-error";
 import { type AuditContext, insertAudit } from "../audit/service";
 import { publicUser } from "../auth/service";
-import type { profilePatchSchema, rejectSchema } from "./schemas";
+import type { listStudentsSchema, profilePatchSchema, rejectSchema } from "./schemas";
+
+/**
+ * The full student directory for institution-wide Admin or a department's
+ * HOD/Dean. Unlike the verification queue this includes every status, so the
+ * oversight view can see who is pending, active or rejected.
+ */
+export async function listStudents(auth: AuthContext, input: z.infer<typeof listStudentsSchema>) {
+  const { db } = getDb();
+  const admin = hasRole(auth, "ADMIN");
+  const senior = departmentScope(auth, "HOD_DEAN");
+  const filters: SQL[] = [eq(users.accountType, "COLLEGE_STUDENT")];
+  if (!admin) {
+    if (senior.global) {
+      // Institution-wide HOD/Dean sees every department.
+    } else if (senior.departmentIds.length) {
+      filters.push(inArray(studentProfiles.departmentId, senior.departmentIds));
+    } else {
+      return { items: [], total: 0, limit: input.limit, offset: input.offset, hasMore: false };
+    }
+  }
+  if (input.departmentId) filters.push(eq(studentProfiles.departmentId, input.departmentId));
+  if (input.status) filters.push(eq(users.status, input.status));
+  if (input.q) {
+    const search = or(
+      ilike(users.fullName, `%${input.q}%`),
+      ilike(users.email, `%${input.q}%`),
+      ilike(studentProfiles.rollNumber, `%${input.q}%`),
+      ilike(users.phone, `%${input.q}%`),
+    );
+    if (search) filters.push(search);
+  }
+  const where = and(...filters);
+  const rows = await db
+    .select({
+      user: users,
+      profile: studentProfiles,
+      departmentName: departments.name,
+    })
+    .from(users)
+    .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+    .leftJoin(departments, eq(departments.id, studentProfiles.departmentId))
+    .where(where)
+    .orderBy(users.fullName, users.id)
+    .limit(input.limit + 1)
+    .offset(input.offset);
+  const [totalRow] = await db
+    .select({ n: count() })
+    .from(users)
+    .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+    .where(where);
+  return {
+    items: rows.slice(0, input.limit).map((r) => ({
+      id: r.user.id,
+      fullName: r.user.fullName,
+      email: r.user.email,
+      phone: r.user.phone,
+      status: r.user.status,
+      accountType: r.user.accountType,
+      emailVerifiedAt: r.user.emailVerifiedAt,
+      createdAt: r.user.createdAt,
+      profile: r.profile,
+      departmentName: r.departmentName,
+    })),
+    total: totalRow?.n ?? 0,
+    limit: input.limit,
+    offset: input.offset,
+    hasMore: rows.length > input.limit,
+  };
+}
 
 export async function listVerificationQueue(
   auth: AuthContext,

@@ -1,6 +1,13 @@
 import { CLUB_ROLE_LABELS, type ClubRole } from "@campusops/shared/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ConfirmDialog, FormDialog, Pager, useAction, useToast } from "../components/feedback";
+import {
+  ConfirmDialog,
+  FormDialog,
+  Modal,
+  Pager,
+  useAction,
+  useToast,
+} from "../components/feedback";
 import { Card, Empty, Field, SkeletonRows, formatWhen } from "../components/ui";
 import { type Page, api, errorMessage, isForbidden, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
@@ -20,6 +27,7 @@ type MemberRow = {
   user: { id: string; email: string; fullName: string; accountType: string; status: string };
 };
 
+type MemberResponse = { items: MemberRow[]; canManage?: boolean };
 type Candidate = { id: string; fullName: string; email: string; accountType: string };
 type Department = { id: string; name: string };
 
@@ -100,10 +108,10 @@ export function ClubsPanel() {
     // Managing coordinators is the club lead's or Admin's right; the API decides,
     // so a 403 here simply means "read-only for you", not a broken screen.
     try {
-      const rows = await api<MemberRow[]>(`/clubs/${club.id}/members`);
+      const res = await api<MemberResponse>(`/clubs/${club.id}/members`);
       if (selectedClubId.current !== club.id) return;
-      setMembers(Array.isArray(rows) ? rows : []);
-      setCanManage(true);
+      setMembers(res.items);
+      setCanManage(Boolean(res.canManage));
     } catch (err) {
       // 403 legitimately means "read-only viewer". Anything else is a real
       // failure and must not masquerade as a permission state.
@@ -117,8 +125,11 @@ export function ClubsPanel() {
   }
 
   async function reloadMembers(clubId: string) {
-    const rows = await api<MemberRow[]>(`/clubs/${clubId}/members`);
-    if (selectedClubId.current === clubId) setMembers(Array.isArray(rows) ? rows : []);
+    const res = await api<MemberResponse>(`/clubs/${clubId}/members`);
+    if (selectedClubId.current === clubId) {
+      setMembers(res.items);
+      setCanManage(Boolean(res.canManage));
+    }
   }
 
   async function create(e: React.FormEvent) {
@@ -352,51 +363,58 @@ export function ClubsPanel() {
         </Field>
       </FormDialog>
 
-      {selected && (
-        <Card
-          title={selected.name}
-          actions={
-            <div className="row" style={{ gap: "0.35rem" }}>
-              {canManage && (
-                <button type="button" className="ghost" onClick={() => setEditing(selected)}>
-                  Edit
-                </button>
-              )}
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  selectedClubId.current = null;
-                  setSelected(null);
-                  setMembersLoading(false);
-                }}
-              >
-                Close
+      <Modal
+        open={selected !== null}
+        size="lg"
+        title={selected?.name ?? "Club"}
+        description={selected ? deptName(selected.departmentId) : undefined}
+        onClose={() => {
+          selectedClubId.current = null;
+          setSelected(null);
+          setMembersLoading(false);
+        }}
+        footer={
+          <>
+            {selected && canManage && (
+              <button type="button" className="ghost" onClick={() => setEditing(selected)}>
+                Edit club
               </button>
-            </div>
-          }
-        >
+            )}
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                selectedClubId.current = null;
+                setSelected(null);
+                setMembersLoading(false);
+              }}
+            >
+              Close
+            </button>
+          </>
+        }
+      >
+        <div className="stack">
           <dl className="kv">
             <dt>Slug</dt>
             <dd>
-              <code>{selected.slug}</code>
+              <code>{selected?.slug}</code>
             </dd>
             <dt>Department</dt>
-            <dd>{deptName(selected.departmentId)}</dd>
+            <dd>{selected ? deptName(selected.departmentId) : "—"}</dd>
             <dt>Description</dt>
-            <dd>{selected.description || "—"}</dd>
+            <dd>{selected?.description || "—"}</dd>
           </dl>
 
-          <h3>Club team</h3>
+          <h3>Members</h3>
           {membersLoading ? (
             <SkeletonRows rows={3} />
-          ) : !canManage ? (
-            <p className="meta">
-              Coordinator management is limited to the club lead and Admin. Faculty are added by the
-              department&apos;s HOD/Dean or Admin.
-            </p>
           ) : members.length === 0 ? (
-            <Empty>No members yet. Add a lead so the club can create events.</Empty>
+            <Empty>
+              {canManage
+                ? "No members yet. Add a lead so the club can create events."
+                : "No members yet."}
+            </Empty>
           ) : (
             <div className="scroll-x">
               <table className="grid">
@@ -406,7 +424,7 @@ export function ClubsPanel() {
                     <th>Email</th>
                     <th>Role</th>
                     <th>Active</th>
-                    <th> </th>
+                    {canManage && <th> </th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -419,42 +437,54 @@ export function ClubsPanel() {
                           m.membership.clubRole}
                       </td>
                       <td>{m.membership.isActive ? "Yes" : "No"}</td>
-                      <td className="nowrap">
-                        {m.membership.clubRole !== "FACULTY" && (
-                          <button
-                            type="button"
-                            className="ghost tiny"
-                            onClick={() =>
-                              setRole(m, m.membership.clubRole === "LEAD" ? "COORDINATOR" : "LEAD")
-                            }
-                          >
-                            Make {m.membership.clubRole === "LEAD" ? "coordinator" : "lead"}
-                          </button>
-                        )}{" "}
-                        {(m.membership.clubRole !== "FACULTY" || canManageFaculty) && (
-                          <>
+                      {canManage && (
+                        <td className="nowrap">
+                          {m.membership.clubRole !== "FACULTY" && (
                             <button
                               type="button"
                               className="ghost tiny"
-                              onClick={() => setActive(m, !m.membership.isActive)}
+                              onClick={() =>
+                                setRole(
+                                  m,
+                                  m.membership.clubRole === "LEAD" ? "COORDINATOR" : "LEAD",
+                                )
+                              }
                             >
-                              {m.membership.isActive ? "Deactivate" : "Reactivate"}
-                            </button>{" "}
-                            <button
-                              type="button"
-                              className="ghost tiny"
-                              onClick={() => setRemove(m)}
-                            >
-                              Remove
+                              Make {m.membership.clubRole === "LEAD" ? "coordinator" : "lead"}
                             </button>
-                          </>
-                        )}
-                      </td>
+                          )}{" "}
+                          {(m.membership.clubRole !== "FACULTY" || canManageFaculty) && (
+                            <>
+                              <button
+                                type="button"
+                                className="ghost tiny"
+                                onClick={() => setActive(m, !m.membership.isActive)}
+                              >
+                                {m.membership.isActive ? "Deactivate" : "Reactivate"}
+                              </button>{" "}
+                              <button
+                                type="button"
+                                className="ghost tiny"
+                                onClick={() => setRemove(m)}
+                              >
+                                Remove
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          )}
+
+          {!canManage && (
+            <p className="meta">
+              You can see everyone in this club. Coordinators and faculty are managed by the club
+              lead, the department&apos;s HOD/Dean, or Admin.
+            </p>
           )}
 
           {canManage && (
@@ -580,8 +610,8 @@ export function ClubsPanel() {
               )}
             </div>
           )}
-        </Card>
-      )}
+        </div>
+      </Modal>
 
       <FormDialog
         open={Boolean(editing)}

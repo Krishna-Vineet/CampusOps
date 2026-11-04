@@ -1,8 +1,8 @@
-import { and, eq, ilike, ne, or } from "drizzle-orm";
+import { and, eq, ilike, inArray, ne, or } from "drizzle-orm";
 import type { z } from "zod";
 import { getDb } from "../../db/client";
 import { clubMemberships, clubs, roleAssignments, users } from "../../db/schema";
-import { type AuthContext, hasRole } from "../../middleware/auth";
+import { type AuthContext, departmentScope, hasRole } from "../../middleware/auth";
 import { departmentOwner } from "../../middleware/club-scope";
 import { ApiError } from "../../utils/api-error";
 import { isUniqueViolation } from "../../utils/db-error";
@@ -63,9 +63,34 @@ async function assertIsFacultyAccount(userId: string) {
 }
 
 export async function listClubs(
+  auth: AuthContext,
   page: { limit: number; offset: number } = { limit: 25, offset: 0 },
 ) {
   const { db } = getDb();
+  const admin = hasRole(auth, "ADMIN");
+  const senior = departmentScope(auth, "HOD_DEAN");
+  const memberClubIds = auth.memberships.map((m) => m.clubId);
+  if (!admin && !senior.global) {
+    const scopeParts = [];
+    if (senior.departmentIds.length)
+      scopeParts.push(inArray(clubs.departmentId, senior.departmentIds));
+    if (memberClubIds.length) scopeParts.push(inArray(clubs.id, memberClubIds));
+    if (scopeParts.length === 0)
+      return { items: [], hasMore: false, limit: page.limit, offset: page.offset };
+    const rows = await db
+      .select()
+      .from(clubs)
+      .where(and(eq(clubs.isActive, true), or(...scopeParts)))
+      .orderBy(clubs.name)
+      .limit(page.limit + 1)
+      .offset(page.offset);
+    return {
+      items: rows.slice(0, page.limit),
+      hasMore: rows.length > page.limit,
+      limit: page.limit,
+      offset: page.offset,
+    };
+  }
   const rows = await db
     .select()
     .from(clubs)
@@ -139,6 +164,17 @@ export async function updateClub(
     if (isUniqueViolation(err)) throw new ApiError("CONFLICT", "Club name or slug already exists.");
     throw err;
   }
+}
+
+/** Same rule as requireClubManage, without throwing. */
+export function canManageClub(
+  auth: AuthContext,
+  club: { id: string; departmentId: string | null },
+): boolean {
+  const isLead = auth.memberships.some(
+    (m) => m.clubId === club.id && m.clubRole === "LEAD" && m.isActive,
+  );
+  return hasRole(auth, "ADMIN") || isLead || departmentOwner(auth, club.departmentId);
 }
 
 export async function listMembers(clubId: string) {

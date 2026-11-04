@@ -14,7 +14,9 @@ const pageSchema = shared.offsetPaginationSchema;
 export const clubRoutes = new Hono();
 clubRoutes.use("*", authenticate, requireActiveAccount);
 
-clubRoutes.get("/", async (c) => ok(c, await service.listClubs(parseQuery(c, pageSchema))));
+clubRoutes.get("/", async (c) =>
+  ok(c, await service.listClubs(c.get("auth"), parseQuery(c, pageSchema))),
+);
 clubRoutes.post("/", requireRole("ADMIN"), async (c) => {
   const input = await parseJson(c, schemas.createClubSchema);
   const row = await service.createClub(c.get("auth").user.id, input, auditContext(c));
@@ -36,8 +38,11 @@ clubRoutes.get("/:id/candidates", requireClubManage(), async (c) =>
   ok(c, await service.findMemberCandidates(parseQuery(c, schemas.candidateQuerySchema))),
 );
 
-clubRoutes.get("/:id/members", requireClubManage(), async (c) =>
-  ok(c, { items: await service.listMembers(c.req.param("id")) }),
+clubRoutes.get("/:id/members", requireClubRead(), async (c) =>
+  ok(c, {
+    items: await service.listMembers(c.req.param("id")),
+    canManage: service.canManageClub(c.get("auth"), c.get("club")),
+  }),
 );
 clubRoutes.post("/:id/members", requireClubManage(), async (c) => {
   const input = await parseJson(c, schemas.addMemberSchema);

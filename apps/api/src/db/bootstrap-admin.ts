@@ -69,7 +69,9 @@ async function bootstrapAdmin() {
         })
         .returning();
       if (!user) throw new Error("insert failed");
-      await tx.insert(staffProfiles).values({ userId: user.id, designation: "Principal" });
+      await tx
+        .insert(staffProfiles)
+        .values({ userId: user.id, designation: "Principal", position: "OTHER" });
       await tx
         .insert(roleAssignments)
         .values({ userId: user.id, role: "ADMIN", scopeType: "GLOBAL" });

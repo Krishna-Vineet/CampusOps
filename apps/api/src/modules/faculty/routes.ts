@@ -21,6 +21,9 @@ facultyRoutes.use("*", authenticate);
 facultyRoutes.get("/verification-queue", requireRole("FACULTY", "HOD_DEAN"), async (c) =>
   ok(c, await service.listVerificationQueue(c.get("auth"), parseQuery(c, pageSchema))),
 );
+facultyRoutes.get("/students", requireRole("HOD_DEAN", "ADMIN"), async (c) =>
+  ok(c, await service.listStudents(c.get("auth"), parseQuery(c, schemas.listStudentsSchema))),
+);
 facultyRoutes.get("/students/:id", requireRole("FACULTY", "HOD_DEAN"), async (c) =>
   ok(c, await service.getStudent(c.get("auth"), c.req.param("id"))),
 );

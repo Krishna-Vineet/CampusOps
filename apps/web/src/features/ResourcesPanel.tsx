@@ -1,10 +1,13 @@
+import { RESOURCE_STATUS_LABELS, type ResourceStatus } from "@campusops/shared/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  RESOURCE_STATUSES,
-  RESOURCE_STATUS_LABELS,
-  type ResourceStatus,
-} from "@campusops/shared/ui";
-import { useCallback, useEffect, useState } from "react";
-import { ConfirmDialog, FormDialog, Pager, useAction, useToast } from "../components/feedback";
+  ConfirmDialog,
+  FormDialog,
+  Modal,
+  Pager,
+  useAction,
+  useToast,
+} from "../components/feedback";
 import {
   Card,
   Empty,
@@ -35,22 +38,23 @@ type ResourceRow = {
   units: Unit[];
   canManage: boolean;
 };
+type Booking = {
+  reservationId: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  eventId: string | null;
+  title: string;
+};
 type CalendarRow = {
   resourceUnitId: string;
   unitLabel: string;
   resourceName: string;
-  bookings: Array<{
-    reservationId: string;
-    startsAt: string;
-    endsAt: string;
-    status: string;
-    eventId: string | null;
-    title: string;
-  }>;
+  bookings: Booking[];
 };
 type Department = { id: string; name: string };
 
-type Sub = "availability" | "catalogue" | "calendar";
+type Sub = "calendar" | "catalogue";
 
 function defaultWindow(daysAhead: number) {
   const a = new Date();
@@ -61,9 +65,31 @@ function defaultWindow(daysAhead: number) {
   return { startsAt: toLocalInput(a), endsAt: toLocalInput(b) };
 }
 
+function startOfDay(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toDateInput(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function fromDateInput(value: string) {
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+}
+
+function timeLabel(value: string) {
+  return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
 export function ResourcesPanel() {
   const { isAdmin, isSenior } = useSession();
-  const [sub, setSub] = useState<Sub>("availability");
+  const [sub, setSub] = useState<Sub>("calendar");
   const mayManage = isAdmin || isSenior;
 
   return (
@@ -71,9 +97,8 @@ export function ResourcesPanel() {
       <div className="subtabs">
         {(
           [
-            ["availability", "Find a free slot"],
-            ["catalogue", mayManage ? "Catalogue & units" : "Catalogue"],
-            ["calendar", "Booking calendar"],
+            ["calendar", "Calendar"],
+            ["catalogue", "Catalogue and units"],
           ] as Array<[Sub, string]>
         ).map(([id, label]) => (
           <button
@@ -86,10 +111,296 @@ export function ResourcesPanel() {
           </button>
         ))}
       </div>
-      {sub === "availability" && <Availability />}
-      {sub === "catalogue" && <Catalogue mayManage={mayManage} />}
       {sub === "calendar" && <CalendarView />}
+      {sub === "catalogue" && <Catalogue mayManage={mayManage} />}
     </div>
+  );
+}
+
+function CalendarView() {
+  const toast = useToast();
+  const [rows, setRows] = useState<CalendarRow[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [departmentId, setDepartmentId] = useState("");
+  const [days, setDays] = useState(7);
+  const [windowStart, setWindowStart] = useState(() => startOfDay(new Date()));
+  const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<{ row: CalendarRow; booking: Booking } | null>(null);
+  const [freeOpen, setFreeOpen] = useState(false);
+
+  useEffect(() => {
+    api<{ items: Department[] }>("/departments")
+      .then((d) => setDepartments(d.items))
+      .catch(() => {});
+  }, []);
+
+  const windowEnd = useMemo(() => {
+    const d = new Date(windowStart);
+    d.setDate(d.getDate() + days);
+    return d;
+  }, [windowStart, days]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api<{ rows: CalendarRow[] }>(
+        `/resources/calendar${query({
+          startsAt: windowStart.toISOString(),
+          endsAt: windowEnd.toISOString(),
+          ...(departmentId ? { departmentId } : {}),
+        })}`,
+      );
+      setRows(res.rows);
+    } catch (err) {
+      toast.err(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [windowStart, windowEnd, departmentId, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const dayList = useMemo(
+    () =>
+      Array.from({ length: days }, (_, i) => {
+        const d = new Date(windowStart);
+        d.setDate(d.getDate() + i);
+        return d;
+      }),
+    [windowStart, days],
+  );
+  const spanMs = Math.max(1, windowEnd.getTime() - windowStart.getTime());
+
+  function shift(delta: number) {
+    const next = new Date(windowStart);
+    next.setDate(next.getDate() + delta);
+    setWindowStart(next);
+  }
+
+  return (
+    <>
+      <Card
+        title="Resource calendar"
+        actions={
+          <div className="row">
+            <button type="button" className="ghost tiny" onClick={() => shift(-days)}>
+              ← Previous
+            </button>
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={() => setWindowStart(startOfDay(new Date()))}
+            >
+              Today
+            </button>
+            <button type="button" className="ghost tiny" onClick={() => shift(days)}>
+              Next →
+            </button>
+          </div>
+        }
+      >
+        <p className="meta">
+          Every booked room, lab and piece of equipment on one timeline. Click a booking to see its
+          details. Other clubs&apos; plans appear as &quot;Reserved&quot; without event details.
+        </p>
+        <p className="timeline-range">
+          <strong>
+            {windowStart.toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </strong>
+          <span aria-hidden="true">→</span>
+          <strong>
+            {new Date(windowEnd.getTime() - 1).toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </strong>
+        </p>
+        <div className="toolbar">
+          <Field label="Starting">
+            <input
+              type="date"
+              value={toDateInput(windowStart)}
+              onChange={(e) => {
+                if (e.target.value) setWindowStart(fromDateInput(e.target.value));
+              }}
+            />
+          </Field>
+          <Field label="Length">
+            <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+              <option value={7}>One week</option>
+              <option value={14}>Two weeks</option>
+              <option value={30}>One month</option>
+            </select>
+          </Field>
+          <Field label="Department">
+            <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+              <option value="">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <button type="button" className="ghost" onClick={() => void load()} disabled={loading}>
+            Refresh
+          </button>
+        </div>
+
+        <div className="timeline-legend" aria-hidden="true">
+          <span>
+            <i className="timeline-dot requested" /> Requested
+          </span>
+          <span>
+            <i className="timeline-dot approved" /> Approved
+          </span>
+          <span>
+            <i className="timeline-dot confirmed" /> Confirmed
+          </span>
+        </div>
+
+        {loading ? (
+          <p className="meta">Loading the calendar…</p>
+        ) : rows.length === 0 ? (
+          <Empty>No resource units match this view.</Empty>
+        ) : (
+          <div className="scroll-x timeline-scroll">
+            <div className="timeline" style={{ ["--timeline-days" as string]: dayList.length }}>
+              <div className="timeline-head">
+                <div className="timeline-gutter">Resource / unit</div>
+                <div className="timeline-track timeline-day-labels">
+                  {dayList.map((d) => (
+                    <div
+                      key={d.toISOString()}
+                      className="timeline-day-label"
+                      style={{ width: `${100 / dayList.length}%` }}
+                    >
+                      <span>{d.toLocaleDateString(undefined, { weekday: "short" })}</span>
+                      <strong>{d.getDate()}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {rows.map((r) => (
+                <div className="timeline-row" key={r.resourceUnitId}>
+                  <div className="timeline-gutter">
+                    <strong>{r.resourceName}</strong>
+                    <span className="meta">{r.unitLabel}</span>
+                  </div>
+                  <div className="timeline-track">
+                    {dayList.map((d, i) => (
+                      <span
+                        key={d.toISOString()}
+                        className={`timeline-gridline${i === 0 ? " first" : ""}`}
+                        style={{ left: `${(i / dayList.length) * 100}%` }}
+                        aria-hidden="true"
+                      />
+                    ))}
+                    {r.bookings.length === 0 ? (
+                      <span className="timeline-free meta">Free</span>
+                    ) : (
+                      r.bookings.map((b) => {
+                        const start = Math.max(
+                          windowStart.getTime(),
+                          new Date(b.startsAt).getTime(),
+                        );
+                        const end = Math.min(windowEnd.getTime(), new Date(b.endsAt).getTime());
+                        const left = ((start - windowStart.getTime()) / spanMs) * 100;
+                        const width = Math.max(1.2, ((end - start) / spanMs) * 100);
+                        return (
+                          <button
+                            type="button"
+                            key={b.reservationId}
+                            className={`timeline-bar ${b.status.toLowerCase()}`}
+                            style={{ left: `${left}%`, width: `${width}%` }}
+                            title={`${b.title} · ${formatWhen(b.startsAt)} → ${formatWhen(b.endsAt)}`}
+                            onClick={() => setDetail({ row: r, booking: b })}
+                          >
+                            {b.title}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card
+        title="Find a free slot"
+        actions={
+          <button type="button" className="ghost tiny" onClick={() => setFreeOpen((v) => !v)}>
+            {freeOpen ? "Hide" : "Open"}
+          </button>
+        }
+      >
+        {freeOpen ? (
+          <Availability />
+        ) : (
+          <p className="meta">
+            Search an exact window and see which units are free. The calendar above already shows
+            every existing hold; this search answers &quot;can I book this?&quot;.
+          </p>
+        )}
+      </Card>
+
+      <Modal
+        open={detail !== null}
+        title={detail?.booking.title ?? "Booking"}
+        description={detail ? `${detail.row.resourceName} · ${detail.row.unitLabel}` : undefined}
+        onClose={() => setDetail(null)}
+        footer={
+          <button type="button" className="ghost" onClick={() => setDetail(null)}>
+            Close
+          </button>
+        }
+      >
+        {detail && (
+          <div className="stack">
+            <dl className="kv">
+              <dt>Status</dt>
+              <dd>
+                <ReservationBadge status={detail.booking.status as never} />
+              </dd>
+              <dt>Starts</dt>
+              <dd>{formatWhen(detail.booking.startsAt)}</dd>
+              <dt>Ends</dt>
+              <dd>{formatWhen(detail.booking.endsAt)}</dd>
+              <dt>Duration</dt>
+              <dd>
+                {Math.max(
+                  1,
+                  Math.round(
+                    (new Date(detail.booking.endsAt).getTime() -
+                      new Date(detail.booking.startsAt).getTime()) /
+                      60_000,
+                  ),
+                )}{" "}
+                minutes
+              </dd>
+              <dt>Event</dt>
+              <dd>{detail.booking.eventId ? detail.booking.eventId : "Details withheld"}</dd>
+            </dl>
+            {detail.booking.eventId && (
+              <p className="meta">
+                Open the event from Events to change or release this booking. Reservations are only
+                changed through the event that owns them.
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
+    </>
   );
 }
 
@@ -128,11 +439,7 @@ function Availability() {
   );
 
   return (
-    <Card title="Find a free slot">
-      <p className="meta">
-        Availability is computed for an exact window. Adjacent bookings are allowed; overlapping
-        ones are refused by the database when you request the resource.
-      </p>
+    <div className="stack-tight">
       <div className="toolbar">
         <Field label="From">
           <input
@@ -148,67 +455,53 @@ function Availability() {
             onChange={(e) => setWin({ ...win, endsAt: e.target.value })}
           />
         </Field>
-        <button type="button" disabled={busy} onClick={() => search(0)}>
-          {busy ? "Searching…" : "Search"}
+        <button type="button" disabled={busy} onClick={() => void search(0)}>
+          {busy ? "Searching…" : "Search free slots"}
         </button>
       </div>
 
       {!searched ? (
-        <Empty>Choose a window and search to see which units are free.</Empty>
+        <p className="meta">Choose a window and search to see which units are free.</p>
       ) : items.length === 0 ? (
         <Empty>No resource units match this window.</Empty>
       ) : (
-        <div className="scroll-x">
-          <table className="grid">
-            <thead>
-              <tr>
-                <th>Resource</th>
-                <th>Unit</th>
-                <th>Capacity</th>
-                <th>Free?</th>
-                <th>Conflicts</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((i) => (
-                <tr key={i.resourceUnitId}>
-                  <td>{i.resourceName}</td>
-                  <td>{i.unitLabel}</td>
-                  <td>{i.capacity ?? "—"}</td>
-                  <td>
-                    <span className={`badge ${i.available ? "good" : "bad"}`}>
-                      {i.available ? "Free" : "Busy"}
-                    </span>
-                  </td>
-                  <td className="meta">
-                    {i.busyBlocks.length === 0
-                      ? "—"
-                      : i.busyBlocks
-                          .map((b) => `${formatWhen(b.startsAt)}–${formatWhen(b.endsAt)}`)
-                          .join(", ")}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="availability-grid">
+            {items.map((i) => (
+              <div
+                className={`availability-card${i.available ? " free" : " busy"}`}
+                key={i.resourceUnitId}
+              >
+                <div>
+                  <strong>{i.resourceName}</strong>
+                  <span className="meta">{i.unitLabel}</span>
+                </div>
+                <span className={`badge ${i.available ? "good" : "bad"}`}>
+                  {i.available ? "Free" : "Busy"}
+                </span>
+                <span className="meta">
+                  {i.busyBlocks.length === 0
+                    ? "No holds in this window"
+                    : `${i.busyBlocks.length} hold${i.busyBlocks.length === 1 ? "" : "s"}`}
+                </span>
+              </div>
+            ))}
+          </div>
+          <Pager
+            offset={offset}
+            limit={PAGE_SIZE}
+            count={items.length}
+            hasMore={hasMore}
+            onChange={(o) => void search(o)}
+          />
+        </>
       )}
-      <Pager
-        offset={offset}
-        limit={PAGE_SIZE}
-        count={items.length}
-        hasMore={hasMore}
-        onChange={(o) => search(o)}
-      />
-    </Card>
+    </div>
   );
 }
 
 function Catalogue({ mayManage }: { mayManage: boolean }) {
   const { isAdmin, scopedDepartmentIds } = useSession();
-  // HOD/Dean may only create inventory inside their own department; Admin may
-  // also create institution-wide resources. Mirror that in the form so the
-  // control cannot offer a choice the API will refuse.
   const scopedOnly = mayManage && !isAdmin;
   const toast = useToast();
   const action = useAction();
@@ -247,7 +540,7 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
   }, [q, offset, toast]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
@@ -336,7 +629,7 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
   return (
     <>
       <Card
-        title="Resource catalogue"
+        title="Catalogue and units"
         actions={
           mayManage ? (
             <button type="button" onClick={() => setCreating(true)}>
@@ -362,7 +655,7 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
               }}
             />
           </Field>
-          <button type="button" className="ghost" onClick={load}>
+          <button type="button" className="ghost" onClick={() => void load()}>
             Refresh
           </button>
         </div>
@@ -480,74 +773,92 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
         </Field>
       </FormDialog>
 
-      {selected && (
-        <Card
-          title={selected.name}
-          actions={
-            <div className="row" style={{ gap: "0.35rem" }}>
-              {selected.canManage && (
-                <button type="button" className="ghost" onClick={() => setUnitOpen(true)}>
-                  Add unit
-                </button>
-              )}
-              <button type="button" className="ghost" onClick={() => setSelected(null)}>
-                Close
+      <Modal
+        open={selected !== null}
+        size="lg"
+        title={selected?.name ?? "Resource"}
+        description={selected ? deptName(selected.departmentId) : undefined}
+        onClose={() => setSelected(null)}
+        footer={
+          <>
+            {selected?.canManage && (
+              <button type="button" className="ghost" onClick={() => setUnitOpen(true)}>
+                Add unit
               </button>
-            </div>
-          }
-        >
-          <dl className="kv">
-            <dt>Capacity</dt>
-            <dd>{selected.capacity ?? "—"}</dd>
-            <dt>Status</dt>
-            <dd>{RESOURCE_STATUS_LABELS[selected.status]}</dd>
-            <dt>Department</dt>
-            <dd>{deptName(selected.departmentId)}</dd>
-          </dl>
+            )}
+            {selected?.canManage && selected.status !== "RETIRED" && (
+              <button
+                type="button"
+                className="ghost"
+                disabled={action.busy}
+                onClick={() => void setResourceStatus("RETIRED")}
+              >
+                Retire resource
+              </button>
+            )}
+            <button type="button" className="ghost" onClick={() => setSelected(null)}>
+              Close
+            </button>
+          </>
+        }
+      >
+        {selected && (
+          <div className="stack">
+            <dl className="kv">
+              <dt>Capacity</dt>
+              <dd>{selected.capacity ?? "—"}</dd>
+              <dt>Status</dt>
+              <dd>{RESOURCE_STATUS_LABELS[selected.status]}</dd>
+              <dt>Department</dt>
+              <dd>{deptName(selected.departmentId)}</dd>
+              <dt>Description</dt>
+              <dd>{selected.description || "—"}</dd>
+            </dl>
 
-          <h3>Units</h3>
-          {selected.units.length === 0 ? (
-            <Empty>No units. Add at least one so this resource can be booked.</Empty>
-          ) : (
-            <div className="scroll-x">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Label</th>
-                    <th>Status</th>
-                    <th>Notes</th>
-                    {selected.canManage && <th> </th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {selected.units.map((u) => (
-                    <tr key={u.id}>
-                      <td>{u.label}</td>
-                      <td>
-                        <span className="chip">{RESOURCE_STATUS_LABELS[u.status]}</span>
-                      </td>
-                      <td className="meta">{u.notes ?? "—"}</td>
-                      {selected.canManage && (
-                        <td>
-                          {u.status !== "RETIRED" && (
-                            <button
-                              type="button"
-                              className="ghost tiny"
-                              onClick={() => setRetire(u)}
-                            >
-                              Retire
-                            </button>
-                          )}
-                        </td>
-                      )}
+            <h3>Units</h3>
+            {selected.units.length === 0 ? (
+              <Empty>No units. Add at least one so this resource can be booked.</Empty>
+            ) : (
+              <div className="scroll-x">
+                <table className="grid">
+                  <thead>
+                    <tr>
+                      <th>Label</th>
+                      <th>Status</th>
+                      <th>Notes</th>
+                      {selected.canManage && <th> </th>}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      )}
+                  </thead>
+                  <tbody>
+                    {selected.units.map((u) => (
+                      <tr key={u.id}>
+                        <td>{u.label}</td>
+                        <td>
+                          <span className="chip">{RESOURCE_STATUS_LABELS[u.status]}</span>
+                        </td>
+                        <td className="meta">{u.notes ?? "—"}</td>
+                        {selected.canManage && (
+                          <td>
+                            {u.status !== "RETIRED" && (
+                              <button
+                                type="button"
+                                className="ghost tiny"
+                                onClick={() => setRetire(u)}
+                              >
+                                Retire
+                              </button>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <FormDialog
         open={unitOpen}
@@ -585,106 +896,5 @@ function Catalogue({ mayManage }: { mayManage: boolean }) {
         onConfirm={doRetire}
       />
     </>
-  );
-}
-
-function CalendarView() {
-  const toast = useToast();
-  const [rows, setRows] = useState<CalendarRow[]>([]);
-  const [win, setWin] = useState(() => {
-    const a = new Date();
-    a.setHours(0, 0, 0, 0);
-    const b = new Date(a);
-    b.setDate(b.getDate() + 7);
-    return { startsAt: toLocalInput(a), endsAt: toLocalInput(b) };
-  });
-  const [busy, setBusy] = useState(false);
-  const [searched, setSearched] = useState(false);
-
-  const search = useCallback(async () => {
-    setBusy(true);
-    try {
-      const res = await api<{ rows: CalendarRow[] }>(
-        `/resources/calendar${query({
-          startsAt: fromLocalInput(win.startsAt),
-          endsAt: fromLocalInput(win.endsAt),
-        })}`,
-      );
-      setRows(res.rows);
-      setSearched(true);
-    } catch (err) {
-      toast.err(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }, [win, toast]);
-
-  return (
-    <Card title="Booking calendar">
-      <p className="meta">
-        Bookings for other clubs appear as "Reserved" without event details, so the schedule is
-        visible without leaking another club's plans. Windows are limited to 62 days.
-      </p>
-      <div className="toolbar">
-        <Field label="From">
-          <input
-            type="datetime-local"
-            value={win.startsAt}
-            onChange={(e) => setWin({ ...win, startsAt: e.target.value })}
-          />
-        </Field>
-        <Field label="To">
-          <input
-            type="datetime-local"
-            value={win.endsAt}
-            onChange={(e) => setWin({ ...win, endsAt: e.target.value })}
-          />
-        </Field>
-        <button type="button" disabled={busy} onClick={search}>
-          {busy ? "Loading…" : "Show bookings"}
-        </button>
-      </div>
-      {!searched ? (
-        <Empty>Choose a window to see bookings.</Empty>
-      ) : rows.length === 0 ? (
-        <Empty>No resource units found.</Empty>
-      ) : (
-        <div className="scroll-x">
-          <table className="grid">
-            <thead>
-              <tr>
-                <th>Resource</th>
-                <th>Unit</th>
-                <th>Bookings in window</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.resourceUnitId}>
-                  <td>{r.resourceName}</td>
-                  <td>{r.unitLabel}</td>
-                  <td>
-                    {r.bookings.length === 0 ? (
-                      <span className="meta">Free for the whole window</span>
-                    ) : (
-                      <ul className="plain">
-                        {r.bookings.map((b) => (
-                          <li key={b.reservationId}>
-                            <ReservationBadge status={b.status as never} /> {b.title}{" "}
-                            <span className="meta">
-                              {formatWhen(b.startsAt)} → {formatWhen(b.endsAt)}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
   );
 }
