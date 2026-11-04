@@ -23,8 +23,8 @@ export async function sendAuthEmail(
     // Do not log OTPs or action URLs. The UI receives the OTP only when explicitly enabled.
     console.log(`[demo-email] to=${input.to} subject=${input.subject}`);
     return { delivery: "DEMO", ...(shouldExposeDemoOtp() ? { demoOtp: input.otp } : {}) };
-  } 
-  
+  }
+
   const mode = effectiveEmailMode();
   if (!mode)
     throw new Error(

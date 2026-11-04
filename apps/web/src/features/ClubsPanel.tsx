@@ -1,7 +1,7 @@
 import { CLUB_ROLE_LABELS, type ClubRole } from "@campusops/shared/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog, Pager, useAction, useToast } from "../components/feedback";
-import { Card, Empty, Field, formatWhen } from "../components/ui";
+import { Card, Empty, Field, SkeletonRows, formatWhen } from "../components/ui";
 import { type Page, api, errorMessage, isForbidden, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
 import { useSession } from "../lib/session";
@@ -247,8 +247,8 @@ export function ClubsPanel() {
         }
       >
         <p className="meta">
-          A club is a group of coordinators with faculty members. Events, permissions and reports
-          are all owned by a club.
+          A club is the unit that owns events, permissions and reports. Every club has coordinators
+          who run it and faculty who sign off on it.
         </p>
 
         {creating && (
@@ -308,7 +308,7 @@ export function ClubsPanel() {
         )}
 
         {loading ? (
-          <p className="meta">Loading…</p>
+          <SkeletonRows rows={5} />
         ) : clubs.length === 0 ? (
           <Empty>No clubs yet.</Empty>
         ) : (
@@ -433,7 +433,7 @@ export function ClubsPanel() {
 
           <h3>Club team</h3>
           {membersLoading ? (
-            <output className="meta">Loading club members…</output>
+            <SkeletonRows rows={3} />
           ) : !canManage ? (
             <p className="meta">
               Coordinator management is limited to the club lead and Admin. Faculty are added by the

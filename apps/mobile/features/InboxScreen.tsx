@@ -64,14 +64,19 @@ export function InboxScreen({ onOpenEvent }: { onOpenEvent?: (eventId: string) =
     }
   }
 
-  if (loading) return <Loading label="Loading announcements…" />;
+  if (loading)
+    return (
+      <Screen>
+        <Loading label="Loading announcements…" />
+      </Screen>
+    );
 
   return (
     <Screen>
       <Title
         eyebrow="From your coordinators"
         title="Announcements"
-        subtitle="Venue changes, timings and instructions for events you are part of."
+        subtitle="Venue changes, timings and the instructions that actually matter, for events you are part of."
       />
       <Note message={error} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

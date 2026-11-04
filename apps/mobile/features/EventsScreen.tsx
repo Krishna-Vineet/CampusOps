@@ -7,6 +7,7 @@ import {
 } from "@campusops/shared/ui";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import { AppIcon } from "../components/icons";
 import {
   Badge,
   Button,
@@ -21,6 +22,7 @@ import {
   Screen,
   Title,
   colors,
+  fonts,
 } from "../components/ui";
 import { type Page, api, errorMessage, query } from "../lib/api";
 import { eventTone, statusLabel, when } from "../lib/format";
@@ -313,7 +315,7 @@ export function EventsScreen({
       <Title
         eyebrow={`Hi, ${me?.user.fullName.split(" ")[0] ?? "there"}`}
         title="What's happening on campus"
-        subtitle="Find an event, register, and keep your pass handy."
+        subtitle="Find an event, claim a seat, keep the pass handy."
       />
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Chip
@@ -335,13 +337,31 @@ export function EventsScreen({
       </View>
       {tab === "discover" && (
         <Card>
-          <Field
-            label="Search events"
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Event name"
-          />
-          <Button label="Search" variant="ghost" onPress={() => setAppliedSearch(search.trim())} />
+          <View style={{ gap: 8 }}>
+            <Field
+              label="Search events"
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Event or club name"
+            />
+            <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+              <Button
+                label="Search"
+                variant="ghost"
+                onPress={() => setAppliedSearch(search.trim())}
+              />
+              {search ? (
+                <Button
+                  label="Clear"
+                  variant="ghost"
+                  onPress={() => {
+                    setSearch("");
+                    setAppliedSearch("");
+                  }}
+                />
+              ) : null}
+            </View>
+          </View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -371,59 +391,175 @@ export function EventsScreen({
           }
         />
       ) : tab === "discover" ? (
-        visible.map((event) => (
-          <Pressable
-            key={event.id}
-            accessibilityRole="button"
-            onPress={() => setSelected(event.id)}
-          >
-            <Card>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-                <Badge label={EVENT_TEMPLATE_LABELS[event.template]} tone="primary" />
-                <Badge label={statusLabel(event.status)} tone={eventTone(event.status)} />
-              </View>
-              <Text style={{ fontSize: 19, fontWeight: "700", color: colors.ink }}>
-                {event.title}
-              </Text>
-              <Muted>
-                {when(event.startsAt, tz)} · {event.venueSummary ?? "Venue to be announced"}
-              </Muted>
-              <Text numberOfLines={2} style={{ color: colors.muted, lineHeight: 20 }}>
-                {event.description}
-              </Text>
-              <Text style={{ color: colors.primary, fontWeight: "700" }}>View event →</Text>
-            </Card>
-          </Pressable>
-        ))
-      ) : (
-        registrations.map((r) => (
-          <Pressable key={r.id} accessibilityRole="button" onPress={() => setSelected(r.eventId)}>
-            <Card>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-                <Text style={{ fontSize: 17, fontWeight: "700", color: colors.ink, flex: 1 }}>
-                  {r.event.title}
+        visible.map((event) => {
+          const start = new Date(event.startsAt);
+          return (
+            <Pressable
+              key={event.id}
+              accessibilityRole="button"
+              onPress={() => setSelected(event.id)}
+              style={({ pressed }) => pressed && { opacity: 0.88 }}
+            >
+              <Card>
+                <View style={{ flexDirection: "row", gap: 13, alignItems: "flex-start" }}>
+                  <View
+                    style={{
+                      width: 46,
+                      height: 50,
+                      borderRadius: 9,
+                      borderWidth: 1,
+                      borderColor: colors.line,
+                      backgroundColor: colors.cardAlt,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 1,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: fonts.display,
+                        fontSize: 20,
+                        fontWeight: "600",
+                        color: colors.ink,
+                        lineHeight: 22,
+                      }}
+                    >
+                      {start.getDate()}
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: fonts.mono,
+                        fontSize: 7.5,
+                        letterSpacing: 0.8,
+                        textTransform: "uppercase",
+                        color: colors.muted,
+                      }}
+                    >
+                      {start.toLocaleString("en-GB", { month: "short" })}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1, gap: 4, minWidth: 0 }}>
+                    <Text
+                      style={{
+                        fontSize: 16.5,
+                        fontWeight: "600",
+                        color: colors.ink,
+                        letterSpacing: -0.2,
+                        lineHeight: 21,
+                      }}
+                    >
+                      {event.title}
+                    </Text>
+                    <Muted>
+                      {when(event.startsAt, tz)}
+                      {" · "}
+                      {event.venueSummary ?? "Venue to be announced"}
+                    </Muted>
+                  </View>
+                  <AppIcon name="chevron" size={16} color={colors.muted} />
+                </View>
+                <Text
+                  numberOfLines={2}
+                  style={{ color: colors.muted, lineHeight: 19.5, fontSize: 13 }}
+                >
+                  {event.description}
                 </Text>
-                <Badge
-                  label={statusLabel(r.status)}
-                  tone={
-                    r.status === "CONFIRMED"
-                      ? "good"
-                      : r.status === "REJECTED" || r.status === "CANCELLED"
-                        ? "bad"
-                        : "warn"
-                  }
-                />
-              </View>
-              <Muted>
-                {r.clubName} · {when(r.event.startsAt, tz)}
-              </Muted>
-              {r.queuePosition && <Muted>Waitlist position {r.queuePosition}</Muted>}
-              {r.passRevokedAt && (
-                <Note message="Your pass was revoked. Contact the coordinator." />
-              )}
-            </Card>
-          </Pressable>
-        ))
+                <View
+                  style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center" }}
+                >
+                  <Badge label={EVENT_TEMPLATE_LABELS[event.template]} tone="primary" />
+                  <Badge label={statusLabel(event.status)} tone={eventTone(event.status)} />
+                  <Text style={{ fontSize: 11, color: colors.muted, marginLeft: "auto" }}>
+                    {event.capacity} seats
+                  </Text>
+                </View>
+              </Card>
+            </Pressable>
+          );
+        })
+      ) : (
+        registrations.map((r) => {
+          const start = new Date(r.event.startsAt);
+          return (
+            <Pressable
+              key={r.id}
+              accessibilityRole="button"
+              onPress={() => setSelected(r.eventId)}
+              style={({ pressed }) => pressed && { opacity: 0.88 }}
+            >
+              <Card>
+                <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
+                  <View
+                    style={{
+                      width: 46,
+                      height: 50,
+                      borderRadius: 9,
+                      borderWidth: 1,
+                      borderColor: colors.line,
+                      backgroundColor: colors.cardAlt,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 1,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: fonts.display,
+                        fontSize: 20,
+                        fontWeight: "600",
+                        color: colors.ink,
+                        lineHeight: 22,
+                      }}
+                    >
+                      {start.getDate()}
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: fonts.mono,
+                        fontSize: 7.5,
+                        letterSpacing: 0.8,
+                        textTransform: "uppercase",
+                        color: colors.muted,
+                      }}
+                    >
+                      {start.toLocaleString("en-GB", { month: "short" })}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1, gap: 3, minWidth: 0 }}>
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontWeight: "600",
+                        color: colors.ink,
+                        letterSpacing: -0.2,
+                        lineHeight: 21,
+                      }}
+                    >
+                      {r.event.title}
+                    </Text>
+                    <Muted>
+                      {r.clubName} · {when(r.event.startsAt, tz)}
+                    </Muted>
+                  </View>
+                  <Badge
+                    label={statusLabel(r.status)}
+                    tone={
+                      r.status === "CONFIRMED"
+                        ? "good"
+                        : r.status === "REJECTED" || r.status === "CANCELLED"
+                          ? "bad"
+                          : "warn"
+                    }
+                  />
+                </View>
+                {r.queuePosition && <Muted>Waitlist position {r.queuePosition}</Muted>}
+                {r.passRevokedAt && (
+                  <Note message="Your pass was revoked. Contact the coordinator." />
+                )}
+              </Card>
+            </Pressable>
+          );
+        })
       )}
       {hasMore && !loading && (
         <Button

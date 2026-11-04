@@ -1,7 +1,8 @@
 import { GLOBAL_ROLE_LABELS } from "@campusops/shared/ui";
 import { useState } from "react";
 import { ConfirmDialog, useAction } from "../components/feedback";
-import { Card, Empty, Field, formatWhen } from "../components/ui";
+import { Icon } from "../components/icons";
+import { Card, Empty, Field } from "../components/ui";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 
@@ -31,32 +32,66 @@ export function AccountPanel() {
   }
 
   const mismatch = pw.confirm.length > 0 && pw.newPassword !== pw.confirm;
+  const initials = me.user.fullName
+    .split(" ")
+    .map((s) => s[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  const roleNames = me.globalRoles.map(
+    (r) => GLOBAL_ROLE_LABELS[r.role as keyof typeof GLOBAL_ROLE_LABELS] ?? r.role,
+  );
 
   return (
     <>
-      <Card
-        title="Your account"
-        actions={
+      <Card title="Your account" subtitle="What the institution has on record for you.">
+        <div className="account-identity">
+          <span className="avatar account-avatar">{initials}</span>
+          <div className="account-who">
+            <b>{me.user.fullName}</b>
+            <span>{me.user.email}</span>
+            <div className="row" style={{ marginTop: 8, gap: 6 }}>
+              {roleNames.length ? (
+                roleNames.map((r) => (
+                  <span className="badge info" key={r}>
+                    {r}
+                  </span>
+                ))
+              ) : (
+                <span className="badge muted">Club membership only</span>
+              )}
+              <span className={`badge ${me.user.status === "ACTIVE" ? "good" : "warn"}`}>
+                {me.user.status.replace(/_/g, " ").toLowerCase()}
+              </span>
+            </div>
+          </div>
           <button type="button" className="ghost" onClick={() => reload()}>
-            Refresh
+            <Icon name="refresh" size={14} /> Refresh
           </button>
-        }
-      >
-        <dl className="kv">
-          <dt>Name</dt>
-          <dd>{me.user.fullName}</dd>
-          <dt>Email</dt>
-          <dd>{me.user.email}</dd>
+        </div>
+
+        <dl className="kv account-kv">
           <dt>Account type</dt>
-          <dd>{me.user.accountType.replace(/_/g, " ")}</dd>
-          <dt>Status</dt>
-          <dd>{me.user.status.replace(/_/g, " ")}</dd>
+          <dd>{me.user.accountType.replace(/_/g, " ").toLowerCase()}</dd>
+          <dt>Sign-in email</dt>
+          <dd>{me.user.email}</dd>
+          <dt>Role source</dt>
+          <dd>
+            {me.globalRoles.length > 0
+              ? me.globalRoles.some((r) => r.scopeType === "GLOBAL")
+                ? "Institution-wide role assignment"
+                : "Department-scoped role assignment"
+              : "Club membership"}
+          </dd>
+          <dt>Active roles</dt>
+          <dd>{roles.length ? roles.join(", ") : "None"}</dd>
         </dl>
 
         <h3>Institutional roles</h3>
         {me.globalRoles.length === 0 ? (
-          <Empty>
-            No institutional role. Club coordinators manage events through their club membership.
+          <Empty icon="shield" title="No institutional role">
+            Club coordinators manage events through their club membership. A HOD/Dean or the
+            administrator grants staff roles.
           </Empty>
         ) : (
           <ul className="plain">
@@ -75,75 +110,124 @@ export function AccountPanel() {
 
         <h3>Club memberships</h3>
         {me.clubMemberships.length === 0 ? (
-          <Empty>No club memberships.</Empty>
+          <Empty icon="users" title="No clubs">
+            You are not attached to a club.
+          </Empty>
         ) : (
           <ul className="plain">
             {me.clubMemberships.map((m) => (
               <li key={`${m.clubId}-${m.clubRole}`}>
-                {m.clubName} · {m.clubRole === "LEAD" ? "Lead" : "Coordinator"}
-                {m.isActive ? "" : " (inactive)"}
+                <strong>{m.clubName}</strong>{" "}
+                <span className="meta">
+                  {m.clubRole === "LEAD"
+                    ? "Lead"
+                    : m.clubRole === "FACULTY"
+                      ? "Faculty"
+                      : "Coordinator"}
+                  {m.isActive ? "" : " · inactive"}
+                </span>
               </li>
             ))}
           </ul>
         )}
       </Card>
 
-      <Card title="Change password">
-        <form className="form" onSubmit={changePassword}>
-          <Field label="Current password">
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              value={pw.currentPassword}
-              onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })}
-            />
-          </Field>
-          <Field label="New password">
-            <input
-              type="password"
-              required
-              minLength={10}
-              autoComplete="new-password"
-              value={pw.newPassword}
-              onChange={(e) => setPw({ ...pw, newPassword: e.target.value })}
-            />
-          </Field>
-          <Field label="Confirm new password">
-            <input
-              type="password"
-              required
-              minLength={10}
-              autoComplete="new-password"
-              value={pw.confirm}
-              onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
-            />
-          </Field>
-          {mismatch && <p className="bad-note">The two new passwords do not match.</p>}
-          <button type="submit" disabled={action.busy || mismatch || pw.newPassword.length < 10}>
-            {action.busy ? "Changing…" : "Change password"}
-          </button>
-          <p className="hint">
-            At least 10 characters. Changing your password signs out every session, including this
-            one, and you will be asked to sign in again.
-          </p>
-        </form>
-      </Card>
+      <div className="account-split">
+        <Card
+          title="Change password"
+          subtitle="Changing it signs out every device, including this one."
+        >
+          <form className="form" onSubmit={changePassword} style={{ maxWidth: "none" }}>
+            <Field label="Current password">
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={pw.currentPassword}
+                onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })}
+              />
+            </Field>
+            <Field label="New password" hint="At least 10 characters. A phrase is easier to keep.">
+              <input
+                type="password"
+                required
+                minLength={10}
+                autoComplete="new-password"
+                value={pw.newPassword}
+                onChange={(e) => setPw({ ...pw, newPassword: e.target.value })}
+              />
+            </Field>
+            <Field label="Confirm new password">
+              <input
+                type="password"
+                required
+                minLength={10}
+                autoComplete="new-password"
+                value={pw.confirm}
+                onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
+              />
+            </Field>
+            {mismatch && (
+              <p className="bad-note">
+                <Icon name="alert" size={15} />
+                <span>The two new passwords do not match.</span>
+              </p>
+            )}
+            <button type="submit" disabled={action.busy || mismatch || pw.newPassword.length < 10}>
+              {action.busy ? "Changing…" : "Change password"}
+            </button>
+          </form>
+        </Card>
 
-      <Card title="Sessions">
-        <p className="meta">
-          Your session is kept alive by an httpOnly cookie that JavaScript cannot read. The access
-          token is held in memory only and is never stored in the browser.
-        </p>
-        <div className="row" style={{ gap: "0.5rem" }}>
-          <button type="button" className="ghost" onClick={() => signOut(false)}>
-            Sign out
-          </button>
-          <button type="button" className="danger" onClick={() => setConfirmAll(true)}>
-            Sign out everywhere
-          </button>
+        <div className="stack">
+          <Card title="Sessions" subtitle="How this console keeps you signed in.">
+            <ul className="plain">
+              <li>
+                <strong>Refresh token</strong>{" "}
+                <span className="meta">
+                  httpOnly cookie, unreadable by JavaScript, rotated on every refresh.
+                </span>
+              </li>
+              <li>
+                <strong>Access token</strong>{" "}
+                <span className="meta">held in memory only, never written to storage.</span>
+              </li>
+              <li>
+                <strong>Sign out everywhere</strong>{" "}
+                <span className="meta">revokes every refresh token on this account.</span>
+              </li>
+            </ul>
+            <div className="row">
+              <button type="button" className="ghost" onClick={() => signOut(false)}>
+                <Icon name="logout" size={14} /> Sign out
+              </button>
+              <button type="button" className="danger" onClick={() => setConfirmAll(true)}>
+                Sign out everywhere
+              </button>
+            </div>
+          </Card>
+
+          <Card title="About CampusOps">
+            <div className="about-card">
+              <div>
+                <span className="eyebrow">Management console</span>
+                <p className="meta" style={{ marginTop: 8 }}>
+                  Version 2.0 · built for frequent short events, the approvals around them and the
+                  record they leave behind.
+                </p>
+              </div>
+              <div className="about-sign">
+                <span>Made by</span>
+                <b>Vineet</b>
+              </div>
+            </div>
+            <p className="hint">
+              Students take part in the CampusOps mobile app. There is no student-facing web portal
+              by design.
+            </p>
+          </Card>
         </div>
-      </Card>
+      </div>
 
       <ConfirmDialog
         open={confirmAll}

@@ -300,37 +300,41 @@ export function ReportsPanel() {
 
       {reports.length > 0 && (
         <Card title="Filed versions">
-          <table>
-            <thead>
-              <tr>
-                <th>Version</th>
-                <th>Generated</th>
-                <th>By</th>
-                <th>Archive</th>
-                <th> </th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.map((r) => (
-                <tr key={r.id}>
-                  <td>#{r.sequence}</td>
-                  <td>{formatWhen(r.generatedAt)}</td>
-                  <td>{r.generatedBy.fullName}</td>
-                  <td className="muted">{r.archivedFileId ? "Stored" : "Re-rendered on demand"}</td>
-                  <td>
-                    <div className="row" style={{ gap: "0.35rem" }}>
-                      <button type="button" className="ghost" onClick={() => openReport(r.id)}>
-                        View
-                      </button>
-                      <button type="button" onClick={() => download(r.id)}>
-                        PDF
-                      </button>
-                    </div>
-                  </td>
+          <div className="scroll-x">
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th>Version</th>
+                  <th>Generated</th>
+                  <th>By</th>
+                  <th>Archive</th>
+                  <th> </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {reports.map((r) => (
+                  <tr key={r.id}>
+                    <td>#{r.sequence}</td>
+                    <td>{formatWhen(r.generatedAt)}</td>
+                    <td>{r.generatedBy.fullName}</td>
+                    <td className="muted">
+                      {r.archivedFileId ? "Stored" : "Re-rendered on demand"}
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: "0.35rem" }}>
+                        <button type="button" className="ghost" onClick={() => openReport(r.id)}>
+                          View
+                        </button>
+                        <button type="button" onClick={() => download(r.id)}>
+                          PDF
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
@@ -360,24 +364,26 @@ export function ReportsPanel() {
           </Card>
 
           <Card title="Organised by">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Email</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshot.organizers.map((o) => (
-                  <tr key={o.id}>
-                    <td>{o.fullName}</td>
-                    <td>{o.clubRole === "LEAD" ? "Club lead" : "Coordinator"}</td>
-                    <td className="muted">{o.email}</td>
+            <div className="scroll-x">
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Email</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {snapshot.organizers.map((o) => (
+                    <tr key={o.id}>
+                      <td>{o.fullName}</td>
+                      <td>{o.clubRole === "LEAD" ? "Club lead" : "Coordinator"}</td>
+                      <td className="muted">{o.email}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {snapshot.clubFaculty?.length ? (
               <p className="meta">
                 Club faculty:{" "}
@@ -426,24 +432,26 @@ export function ReportsPanel() {
             {snapshot.facultyInvolved.length === 0 ? (
               <Empty>No faculty involvement recorded.</Empty>
             ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Involvement</th>
-                    <th>Email</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.facultyInvolved.map((f) => (
-                    <tr key={f.id}>
-                      <td>{f.fullName}</td>
-                      <td>{f.role}</td>
-                      <td className="muted">{f.email}</td>
+              <div className="scroll-x">
+                <table className="grid">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Involvement</th>
+                      <th>Email</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {snapshot.facultyInvolved.map((f) => (
+                      <tr key={f.id}>
+                        <td>{f.fullName}</td>
+                        <td>{f.role}</td>
+                        <td className="muted">{f.email}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Card>
 
@@ -451,32 +459,34 @@ export function ReportsPanel() {
             {snapshot.resourcesUsed.length === 0 ? (
               <Empty>No resources booked.</Empty>
             ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Resource</th>
-                    <th>Unit</th>
-                    <th>From</th>
-                    <th>To</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.resourcesUsed.map((r) => (
-                    <tr key={`${r.code}-${r.startsAt}`}>
-                      <td>{r.resource}</td>
-                      <td>
-                        {r.unit} <span className="muted">[{r.code}]</span>
-                      </td>
-                      <td>{formatWhen(r.startsAt)}</td>
-                      <td>{formatWhen(r.endsAt)}</td>
-                      <td>
-                        <ReservationBadge status={r.status} />
-                      </td>
+              <div className="scroll-x">
+                <table className="grid">
+                  <thead>
+                    <tr>
+                      <th>Resource</th>
+                      <th>Unit</th>
+                      <th>From</th>
+                      <th>To</th>
+                      <th>Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {snapshot.resourcesUsed.map((r) => (
+                      <tr key={`${r.code}-${r.startsAt}`}>
+                        <td>{r.resource}</td>
+                        <td>
+                          {r.unit} <span className="muted">[{r.code}]</span>
+                        </td>
+                        <td>{formatWhen(r.startsAt)}</td>
+                        <td>{formatWhen(r.endsAt)}</td>
+                        <td>
+                          <ReservationBadge status={r.status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Card>
 
@@ -520,30 +530,32 @@ export function ReportsPanel() {
             {snapshot.attendees.length === 0 ? (
               <Empty>No registrations recorded.</Empty>
             ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Roll no.</th>
-                    <th>Department</th>
-                    <th>Status</th>
-                    <th>Check-in</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.attendees.map((a, i) => (
-                    <tr key={a.userId}>
-                      <td>{i + 1}</td>
-                      <td>{a.fullName}</td>
-                      <td>{a.rollNumber ?? "—"}</td>
-                      <td>{a.department ?? "—"}</td>
-                      <td>{a.registrationStatus}</td>
-                      <td>{a.checkedInAt ? formatWhen(a.checkedInAt) : "—"}</td>
+              <div className="scroll-x">
+                <table className="grid">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Name</th>
+                      <th>Roll no.</th>
+                      <th>Department</th>
+                      <th>Status</th>
+                      <th>Check-in</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {snapshot.attendees.map((a, i) => (
+                      <tr key={a.userId}>
+                        <td>{i + 1}</td>
+                        <td>{a.fullName}</td>
+                        <td>{a.rollNumber ?? "—"}</td>
+                        <td>{a.department ?? "—"}</td>
+                        <td>{a.registrationStatus}</td>
+                        <td>{a.checkedInAt ? formatWhen(a.checkedInAt) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Card>
 

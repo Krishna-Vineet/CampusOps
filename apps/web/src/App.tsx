@@ -3,6 +3,7 @@ import {
   type ReactNode,
   Suspense,
   lazy,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -11,37 +12,41 @@ import {
 } from "react";
 import { ToastProvider } from "./components/feedback";
 import { Icon, Logo } from "./components/icons";
-import { Card } from "./components/ui";
+import { Card, Kbd, PanelSkeleton } from "./components/ui";
 import { AuthPanel } from "./features/AuthPanel";
 import { type DashboardData, DashboardPanel } from "./features/DashboardPanel";
 import { type Page, api, query } from "./lib/api";
 import { SessionProvider, useSession } from "./lib/session";
 import type { EventRow } from "./lib/types";
 
-const AccountPanel = lazy(() =>
-  import("./features/AccountPanel").then((m) => ({ default: m.AccountPanel })),
-);
-const AdminPanel = lazy(() =>
-  import("./features/AdminPanel").then((m) => ({ default: m.AdminPanel })),
-);
-const ApprovalsPanel = lazy(() =>
-  import("./features/ApprovalsPanel").then((m) => ({ default: m.ApprovalsPanel })),
-);
-const ClubsPanel = lazy(() =>
-  import("./features/ClubsPanel").then((m) => ({ default: m.ClubsPanel })),
-);
-const CoordinatorPanel = lazy(() =>
-  import("./features/CoordinatorPanel").then((m) => ({ default: m.CoordinatorPanel })),
-);
-const ReportsPanel = lazy(() =>
-  import("./features/ReportsPanel").then((m) => ({ default: m.ReportsPanel })),
-);
-const ResourcesPanel = lazy(() =>
-  import("./features/ResourcesPanel").then((m) => ({ default: m.ResourcesPanel })),
-);
-const VerificationPanel = lazy(() =>
-  import("./features/VerificationPanel").then((m) => ({ default: m.VerificationPanel })),
-);
+/**
+ * Panels are split by role into separate chunks. A club coordinator never
+ * downloads the administration screen, and hovering a nav item warms the chunk
+ * before the click lands.
+ */
+const loaders = {
+  account: () => import("./features/AccountPanel").then((m) => ({ default: m.AccountPanel })),
+  admin: () => import("./features/AdminPanel").then((m) => ({ default: m.AdminPanel })),
+  approvals: () => import("./features/ApprovalsPanel").then((m) => ({ default: m.ApprovalsPanel })),
+  clubs: () => import("./features/ClubsPanel").then((m) => ({ default: m.ClubsPanel })),
+  events: () =>
+    import("./features/CoordinatorPanel").then((m) => ({ default: m.CoordinatorPanel })),
+  reports: () => import("./features/ReportsPanel").then((m) => ({ default: m.ReportsPanel })),
+  resources: () => import("./features/ResourcesPanel").then((m) => ({ default: m.ResourcesPanel })),
+  verification: () =>
+    import("./features/VerificationPanel").then((m) => ({ default: m.VerificationPanel })),
+};
+
+// Memoised so a keystroke in the global search repaints the chrome, not the
+// whole workspace underneath it.
+const AccountPanel = memo(lazy(loaders.account));
+const AdminPanel = memo(lazy(loaders.admin));
+const ApprovalsPanel = memo(lazy(loaders.approvals));
+const ClubsPanel = memo(lazy(loaders.clubs));
+const CoordinatorPanel = memo(lazy(loaders.events));
+const ReportsPanel = memo(lazy(loaders.reports));
+const ResourcesPanel = memo(lazy(loaders.resources));
+const VerificationPanel = memo(lazy(loaders.verification));
 
 type Health = { status: string; phase: number; checks: { database: string } };
 type Config = {
@@ -60,31 +65,40 @@ type Tab =
   | "reports"
   | "admin"
   | "account";
+
 const TAB_META: Record<
   Tab,
-  { label: string; icon: string; group: "Workspace" | "Institution" | "You" }
+  { label: string; short: string; icon: string; group: "Workspace" | "Institution" | "You" }
 > = {
-  dashboard: { label: "Dashboard", icon: "dashboard", group: "Workspace" },
-  events: { label: "Events", icon: "calendar", group: "Workspace" },
-  approvals: { label: "Approvals", icon: "inbox", group: "Workspace" },
-  verification: { label: "Student verification", icon: "shield", group: "Workspace" },
-  resources: { label: "Resources", icon: "box", group: "Institution" },
-  clubs: { label: "Clubs", icon: "users", group: "Institution" },
-  reports: { label: "Reports", icon: "file", group: "Institution" },
-  admin: { label: "Administration", icon: "settings", group: "Institution" },
-  account: { label: "Account", icon: "user", group: "You" },
+  dashboard: { label: "Dashboard", short: "Overview", icon: "dashboard", group: "Workspace" },
+  events: { label: "Events", short: "Events", icon: "calendar", group: "Workspace" },
+  approvals: { label: "Approvals", short: "Approvals", icon: "inbox", group: "Workspace" },
+  verification: {
+    label: "Student verification",
+    short: "Verification",
+    icon: "shield",
+    group: "Workspace",
+  },
+  resources: { label: "Resources", short: "Resources", icon: "box", group: "Institution" },
+  clubs: { label: "Clubs", short: "Clubs", icon: "users", group: "Institution" },
+  reports: { label: "Reports", short: "Reports", icon: "file", group: "Institution" },
+  admin: { label: "Administration", short: "Admin", icon: "settings", group: "Institution" },
+  account: { label: "Account", short: "Account", icon: "user", group: "You" },
 };
 const SECTION_LEDE: Record<Tab, string> = {
   dashboard: "",
-  events: "Draft, submit for individual approvals, publish, run and report on your club's events.",
+  events:
+    "Draft an event, ask for each permission separately, publish when every required approval lands, then run the day and file the record.",
   approvals:
-    "Each permission is decided separately. Approve, request changes, or escalate up the chain.",
+    "One decision per permission. Approve it, ask for a change, or send it up the chain. Every action is kept on the request's trail.",
   verification:
-    "Verify college students' IDs and keep their profiles accurate. Only faculty may verify.",
-  resources: "Rooms, labs and equipment with conflict-free holds enforced by the database.",
-  clubs: "Club structure, coordinators and club faculty. HOD/Dean owns faculty membership.",
-  reports: "Instant, immutable PDF event reports: approvals trail, resource usage and attendance.",
-  admin: "Institutional authority: users, roles, departments and maintenance jobs.",
+    "Check college IDs and keep student profiles accurate. Verification is limited to faculty and department heads.",
+  resources: "Rooms, labs and equipment with holds the database refuses to double-book.",
+  clubs:
+    "Club structure, coordinators and club faculty. Faculty membership is owned by the HOD or Dean.",
+  reports:
+    "Immutable event records as PDF: the approval trail, resources used, attendance, and a checksum that can be re-verified.",
+  admin: "Institutional authority: accounts, roles, departments, programmes and maintenance.",
   account: "Your profile, roles, password and active sessions.",
 };
 const TABS = Object.keys(TAB_META) as Tab[];
@@ -94,13 +108,34 @@ const tabFromHash = (): Tab | null => {
   return isTab(h) ? h : null;
 };
 
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function longDate(d: Date) {
+  return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+function shortDate(d: Date) {
+  return `${d.getDate()} ${MONTHS[d.getMonth()]?.slice(0, 3)}`;
+}
+
 export function App() {
   return (
     <SessionProvider>
       <ToastProvider>
-        <ErrorBoundary>
-          <Shell />
-        </ErrorBoundary>
+        <Shell />
       </ToastProvider>
     </SessionProvider>
   );
@@ -115,38 +150,40 @@ function useTheme() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("campusops-theme", theme);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", theme === "dark" ? "#121210" : "#f3f0e8");
   }, [theme]);
   return { theme, toggle: () => setTheme((t) => (t === "light" ? "dark" : "light")) };
 }
 
+type PaletteItem =
+  | { kind: "event"; id: string; title: string; when: string; status: EventRow["status"] }
+  | { kind: "tab"; tab: Tab; label: string; icon: string; hint: string }
+  | { kind: "action"; action: "new" | "theme" | "signout"; label: string; icon: string };
+
 function Shell() {
   const session = useSession();
-  const {
-    me,
-    loading,
-    isCoordinator,
-    isClubMember,
-    isStaff,
-    isFaculty,
-    isSenior,
-    isAdmin,
-    signIn,
-    signOut,
-  } = session;
+  const { me, loading, isClubMember, isStaff, isFaculty, isSenior, isAdmin, signIn, signOut } =
+    session;
   const { theme, toggle } = useTheme();
   const [health, setHealth] = useState<Health | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
   const [tab, setTab] = useState<Tab | null>(tabFromHash);
   const [drawer, setDrawer] = useState(false);
   const [dash, setDash] = useState<DashboardData | null>(null);
-  const [dashTick, setDashTick] = useState(0);
   const [focusEvent, setFocusEvent] = useState<string | null>(null);
   const [newDraft, setNewDraft] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [results, setResults] = useState<EventRow[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [online, setOnline] = useState(() => navigator.onLine);
   const searchRef = useRef<HTMLInputElement>(null);
+  const searchWrap = useRef<HTMLDivElement>(null);
+  const toolWrap = useRef<HTMLDivElement>(null);
+  const prefetched = useRef(new Set<string>());
 
   const loadMeta = useCallback(() => {
     api<Health>("/health/ready")
@@ -161,30 +198,73 @@ function Shell() {
     const t = setInterval(loadMeta, 60_000);
     return () => clearInterval(t);
   }, [loadMeta]);
+
   useEffect(() => {
     const on = () => setTab(tabFromHash());
     addEventListener("hashchange", on);
     return () => removeEventListener("hashchange", on);
   }, []);
 
+  // A connection that drops is worth saying out loud: reads will fail and writes
+  // must not be attempted twice.
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    addEventListener("online", up);
+    addEventListener("offline", down);
+    return () => {
+      removeEventListener("online", up);
+      removeEventListener("offline", down);
+    };
+  }, []);
+
+  // ⌘K focuses search; Escape closes whatever is open; "/" jumps to search.
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
+      const typing =
+        e.target instanceof HTMLElement &&
+        (e.target.tagName === "INPUT" ||
+          e.target.tagName === "TEXTAREA" ||
+          e.target.tagName === "SELECT" ||
+          e.target.isContentEditable);
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         searchRef.current?.focus();
-      }
-      if (e.key === "Escape") {
-        setResults(null);
+        setSearchOpen(true);
+      } else if (e.key === "/" && !typing && me) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        setSearchOpen(true);
+      } else if (e.key === "Escape") {
+        setSearchOpen(false);
         setNotifOpen(false);
         setDrawer(false);
+        searchRef.current?.blur();
       }
     };
     addEventListener("keydown", on);
     return () => removeEventListener("keydown", on);
+  }, [me]);
+
+  // Close popovers on any press outside them.
+  useEffect(() => {
+    const on = (e: PointerEvent) => {
+      const node = e.target as Node;
+      if (searchWrap.current && !searchWrap.current.contains(node)) setSearchOpen(false);
+      if (toolWrap.current && !toolWrap.current.contains(node)) setNotifOpen(false);
+    };
+    addEventListener("pointerdown", on);
+    return () => removeEventListener("pointerdown", on);
   }, []);
+
   useEffect(() => {
     const q = search.trim();
-    if (q.length < 2 || !me) {
+    if (!q || !me) {
+      setResults(q.length >= 2 ? [] : null);
+      setSearching(false);
+      return;
+    }
+    if (q.length < 2) {
       setResults(null);
       return;
     }
@@ -194,7 +274,7 @@ function Shell() {
         .then((p) => setResults(p.items))
         .catch(() => setResults([]))
         .finally(() => setSearching(false));
-    }, 250);
+    }, 220);
     return () => clearTimeout(t);
   }, [search, me]);
 
@@ -212,17 +292,18 @@ function Shell() {
   const allowed = new Set(available);
   const active: Tab = tab && allowed.has(tab) ? tab : "dashboard";
   const mayUseConsole = isStaff || isClubMember;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: dashTick is the manual refresh trigger
+
   useEffect(() => {
     if (!me) return;
     api<DashboardData>("/me/dashboard")
       .then(setDash)
       .catch(() => {});
-  }, [me, dashTick]);
+  }, [me]);
 
   const navigate = useCallback((next: string) => {
     setDrawer(false);
     setNotifOpen(false);
+    setSearchOpen(false);
     setResults(null);
     setSearch("");
     if (next === "events:new") {
@@ -243,6 +324,14 @@ function Shell() {
     },
     [navigate],
   );
+  const consumeFocus = useCallback(() => setFocusEvent(null), []);
+  const prefetch = useCallback((t: Tab) => {
+    if (t === "dashboard" || prefetched.current.has(t)) return;
+    const loader = loaders[t as keyof typeof loaders];
+    if (!loader) return;
+    prefetched.current.add(t);
+    void loader().catch(() => prefetched.current.delete(t));
+  }, []);
 
   async function onAuthenticated(token: string) {
     await signIn(token);
@@ -256,19 +345,35 @@ function Shell() {
       className="icon-btn"
       onClick={toggle}
       aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
-      title="Toggle theme"
+      title={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
     >
-      <Icon name={theme === "light" ? "moon" : "sun"} size={17} />
+      <Icon name={theme === "light" ? "moon" : "sun"} size={16} />
     </button>
   );
 
+  const pageTitle = TAB_META[active].label;
+  const attention = dash
+    ? dash.work.approvalsPending + dash.work.verificationPending + dash.work.openComplaints
+    : 0;
+
+  // Kept above the early returns: a hook may not appear after them.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    document.title = attention
+      ? `(${attention}) ${pageTitle} · CampusOps`
+      : `${pageTitle} · CampusOps`;
+  }, [pageTitle, attention]);
+
   if (loading)
     return (
-      <div className="auth-panel" style={{ minHeight: "100vh" }}>
-        <Card title="CampusOps">
-          <p className="meta">Restoring your session…</p>
-          <div className="skeleton" style={{ height: 12, width: "70%" }} />
-        </Card>
+      <div className="boot-screen" aria-busy="true" aria-live="polite">
+        <span className="boot-mark" aria-hidden="true">
+          <Icon name="ticket" size={21} />
+        </span>
+        <div className="boot-copy">
+          <b>CampusOps</b>
+          <span>Restoring your session</span>
+        </div>
       </div>
     );
 
@@ -279,59 +384,93 @@ function Shell() {
           Skip to sign in
         </a>
         <aside className="auth-hero">
-          <Logo />
           <div>
-            <p className="eyebrow" style={{ color: "#c7c4ff" }}>
-              Management console
-            </p>
-            <h1>Run every campus event from one calm workspace.</h1>
-            <p>
-              Plan events, route individual approvals, allocate rooms and equipment, publish
-              coordinator-defined QR passes, and close the loop with instant PDF reports.
-            </p>
-            <div className="hero-cards">
-              <div className="hero-card">
-                <b>1 workflow</b>
-                <span>draft → approvals → publish → live → report</span>
-              </div>
-              <div className="hero-card">
-                <b>4 QR types</b>
-                <span>one-time · toggle · counted · unlimited</span>
-              </div>
-              <div className="hero-card">
-                <b>0 double bookings</b>
-                <span>database-enforced resource holds</span>
+            <Logo />
+            <div className="auth-hero-body">
+              <p className="eyebrow">Management console</p>
+              <h1>
+                The campus,
+                <br />
+                <em>in order.</em>
+              </h1>
+              <p>
+                One desk for the people who run the day: permissions, rooms, QR passes and the
+                record that outlives the event. Students take part in the CampusOps app.
+              </p>
+              <div className="hero-proof">
+                <div className="hero-proof-item">
+                  <span>01</span>
+                  <div>
+                    <b>Every permission decided on its own</b>
+                    <em>Its own approver, its own due date, its own trail.</em>
+                  </div>
+                </div>
+                <div className="hero-proof-item">
+                  <span>02</span>
+                  <div>
+                    <b>Rooms that cannot double-book</b>
+                    <em>The overlap is rejected by the database, not by hope.</em>
+                  </div>
+                </div>
+                <div className="hero-proof-item">
+                  <span>03</span>
+                  <div>
+                    <b>Passes that expire in your hand</b>
+                    <em>Rotating codes, one nonce each. A screenshot is not a ticket.</em>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-          <p className="hint" style={{ color: "rgba(255,255,255,.55)" }}>
-            Students take part in the CampusOps mobile app. This console is for coordinators,
-            faculty, HOD/Dean and Admin.
-          </p>
+          <div className="auth-hero-foot">
+            <span>
+              CampusOps · <b>Event operations</b>
+            </span>
+            <span>
+              Made by <b>Vineet</b>
+            </span>
+          </div>
         </aside>
         <div className="auth-panel" id="auth-form">
           <div className="auth-top">{themeBtn}</div>
-          <AuthPanel config={config} onAuthenticated={onAuthenticated} />
+          <div className="auth-panel-inner">
+            <span className="auth-badge">Staff access</span>
+            <AuthPanel config={config} onAuthenticated={onAuthenticated} />
+          </div>
+          <div className="auth-foot">
+            <span>© {new Date().getFullYear()} CampusOps</span>
+            <span>·</span>
+            <b>Made by Vineet</b>
+          </div>
         </div>
       </div>
     );
 
   if (!mayUseConsole)
     return (
-      <div className="auth-panel" style={{ minHeight: "100vh" }}>
-        <Card title="This console is for staff and club coordinators" actions={themeBtn}>
+      <div className="auth-locked">
+        <Card
+          title="This console is for staff and club coordinators"
+          actions={themeBtn}
+          subtitle="Your account is a participant account."
+        >
           <p className="lead">
-            Your account does not coordinate a club and has no staff role, so there is nothing for
-            you to manage here.
+            There is nothing for you to manage here. Students register, hold passes and raise issues
+            in the CampusOps app.
           </p>
           <p className="meta">
-            Use the CampusOps mobile app to browse events, register, get your entry QR and report an
-            issue. If you believe you should have access, ask your club lead, your department&apos;s
-            HOD/Dean, or the administrator.
+            If you believe you should have console access, ask your club lead, your
+            department&apos;s HOD or Dean, or the administrator. They can grant a role without
+            creating a new account.
           </p>
-          <button type="button" className="ghost" onClick={() => signOut(false)}>
-            <Icon name="logout" size={15} /> Sign out
-          </button>
+          <div className="row">
+            <button type="button" className="ghost" onClick={() => signOut(false)}>
+              <Icon name="logout" size={15} /> Sign out
+            </button>
+          </div>
+          <p className="auth-note">
+            Signed in as <b>{me.user.email}</b>
+          </p>
         </Card>
       </div>
     );
@@ -343,16 +482,102 @@ function Shell() {
     .join("")
     .toUpperCase();
   const roleLabel = isAdmin
-    ? "Admin"
+    ? "Administrator"
     : isSenior
-      ? "HOD/Dean"
+      ? "HOD / Dean"
       : isFaculty
         ? "Faculty"
         : "Club coordinator";
-  const attention = dash
-    ? dash.work.approvalsPending + dash.work.verificationPending + dash.work.openComplaints
-    : 0;
   const groups = ["Workspace", "Institution", "You"] as const;
+  const now = new Date();
+  const emptyQuery = search.trim().length < 2;
+  const navMatches: Extract<PaletteItem, { kind: "tab" }>[] = emptyQuery
+    ? available.map((t) => ({
+        kind: "tab" as const,
+        tab: t,
+        label: TAB_META[t].label,
+        icon: TAB_META[t].icon,
+        hint: TAB_META[t].group,
+      }))
+    : available
+        .filter((t) => TAB_META[t].label.toLowerCase().includes(search.trim().toLowerCase()))
+        .map((t) => ({
+          kind: "tab" as const,
+          tab: t,
+          label: TAB_META[t].label,
+          icon: TAB_META[t].icon,
+          hint: TAB_META[t].group,
+        }));
+  const actions: Extract<PaletteItem, { kind: "action" }>[] = emptyQuery
+    ? [
+        ...(isClubMember
+          ? [
+              {
+                kind: "action" as const,
+                action: "new" as const,
+                label: "New event draft",
+                icon: "calendar-plus",
+              },
+            ]
+          : []),
+        {
+          kind: "action",
+          action: "theme",
+          label: `Switch to ${theme === "light" ? "dark" : "light"} theme`,
+          icon: theme === "light" ? "moon" : "sun",
+        },
+        { kind: "action", action: "signout", label: "Sign out", icon: "logout" },
+      ]
+    : [];
+  const eventItems: Extract<PaletteItem, { kind: "event" }>[] = (results ?? []).map((r) => ({
+    kind: "event",
+    id: r.id,
+    title: r.title,
+    when: new Date(r.startsAt).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+    }),
+    status: r.status,
+  }));
+  const palette: PaletteItem[] = [...(emptyQuery ? [] : eventItems), ...navMatches, ...actions];
+  const showPalette = searchOpen && me;
+
+  function choose(item: PaletteItem) {
+    if (item.kind === "event") {
+      if (isClubMember) openEvent(item.id);
+      else navigate("reports");
+      return;
+    }
+    if (item.kind === "tab") {
+      prefetch(item.tab);
+      navigate(item.tab);
+      return;
+    }
+    if (item.action === "new") navigate("events:new");
+    else if (item.action === "theme") toggle();
+    else void signOut(false);
+    setSearchOpen(false);
+  }
+
+  function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSearchOpen(true);
+      setActiveIndex((i) => Math.min(palette.length - 1, i + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(0, i - 1));
+    } else if (e.key === "Enter") {
+      const item = palette[activeIndex];
+      if (item) {
+        e.preventDefault();
+        choose(item);
+      }
+    }
+  }
+
+  let runningIndex = -1;
+  const itemIndex = () => ++runningIndex;
 
   return (
     <div className="app-frame">
@@ -368,52 +593,71 @@ function Shell() {
         />
       )}
       <aside className={`sidebar ${drawer ? "open" : ""}`} aria-label="Primary">
-        <button
-          type="button"
-          className="link"
-          style={{ padding: "4px 8px 18px", justifyContent: "flex-start" }}
-          onClick={() => navigate("dashboard")}
-          aria-label="CampusOps dashboard"
-        >
-          <Logo />
-        </button>
-        <nav className="tabs" aria-label="Sections">
-          {groups.map((g) => {
-            const items = available.filter((t) => TAB_META[t].group === g);
-            if (!items.length) return null;
-            return (
-              <div key={g}>
-                <div className="nav-label">{g}</div>
-                {items.map((t) => {
-                  const count =
-                    t === "approvals"
-                      ? dash?.work.approvalsPending
-                      : t === "verification"
-                        ? dash?.work.verificationPending
-                        : undefined;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      className={active === t ? "active" : ""}
-                      aria-current={active === t ? "page" : undefined}
-                      onClick={() => navigate(t)}
-                    >
-                      <Icon name={TAB_META[t].icon} size={18} />
-                      {TAB_META[t].label}
-                      {count ? <span className="nav-count">{count}</span> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </nav>
+        <div className="sidebar-brand">
+          <button
+            type="button"
+            className="link"
+            onClick={() => navigate("dashboard")}
+            aria-label="CampusOps dashboard"
+            style={{ padding: 0, background: "none" }}
+          >
+            <Logo />
+          </button>
+          <button
+            type="button"
+            className="icon-btn sidebar-close"
+            aria-label="Close menu"
+            onClick={() => setDrawer(false)}
+          >
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+        <div className="sidebar-date">
+          <span className="status-dot live" />
+          {longDate(now)}
+          <span style={{ marginLeft: "auto" }}>{String(now.getFullYear())}</span>
+        </div>
+        <div className="sidebar-scroll">
+          <nav className="tabs" aria-label="Sections">
+            {groups.map((g) => {
+              const items = available.filter((t) => TAB_META[t].group === g);
+              if (!items.length) return null;
+              return (
+                <div key={g}>
+                  <div className="nav-label">{g}</div>
+                  {items.map((t) => {
+                    const count =
+                      t === "approvals"
+                        ? dash?.work.approvalsPending
+                        : t === "verification"
+                          ? dash?.work.verificationPending
+                          : undefined;
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        className={active === t ? "active" : ""}
+                        aria-current={active === t ? "page" : undefined}
+                        onClick={() => navigate(t)}
+                        onPointerEnter={() => prefetch(t)}
+                        onFocus={() => prefetch(t)}
+                      >
+                        <Icon name={TAB_META[t].icon} size={17} />
+                        {TAB_META[t].label}
+                        {count ? <span className="nav-count">{count}</span> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </nav>
+        </div>
         <div className="sidebar-foot">
           <div className="sidebar-card">
             <strong>
               <span className={`status-dot ${health ? "" : "bad"}`} />
-              {health ? "All systems connected" : "API unreachable"}
+              {health ? "Systems nominal" : "API unreachable"}
             </strong>
             <div className="status-bar">
               <span>
@@ -426,11 +670,7 @@ function Shell() {
                 Files <strong>{config?.storageMode ?? "—"}</strong>
               </span>
             </div>
-            {config?.demoMode && (
-              <span className="badge warn" style={{ marginTop: 8 }}>
-                Demo mode
-              </span>
-            )}
+            {config?.demoMode && <span className="badge warn">Demo mode</span>}
           </div>
           <div className="sidebar-user">
             <span className="avatar">{initials}</span>
@@ -441,13 +681,20 @@ function Shell() {
             <button
               type="button"
               className="icon-btn"
-              style={{ width: 34, height: 34 }}
+              style={{ width: 30, height: 30 }}
               aria-label="Sign out"
               title="Sign out"
               onClick={() => signOut(false)}
             >
               <Icon name="logout" size={15} />
             </button>
+          </div>
+          <div className="sidebar-credit">
+            <span>CampusOps · v2</span>
+            <b>
+              <span className="credit-dot" />
+              Made by Vineet
+            </b>
           </div>
         </div>
       </aside>
@@ -463,58 +710,127 @@ function Shell() {
             <Icon name="menu" size={18} />
           </button>
           <div className="crumb">
-            CampusOps <Icon name="chevron" size={14} /> <b>{TAB_META[active].label}</b>
+            CampusOps <Icon name="chevron" size={12} /> <b>{pageTitle}</b>
           </div>
-          <div className="searchbox">
-            <Icon name="search" size={16} className="search-icon" />
+          <div className="searchbox" ref={searchWrap}>
+            <Icon name="search" size={15} className="search-icon" />
             <input
               ref={searchRef}
               type="search"
-              placeholder="Search events…"
+              placeholder="Search events or jump to a section"
               aria-label="Search events"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onFocus={() => {
+                setActiveIndex(0);
+                setSearchOpen(true);
+              }}
+              onChange={(e) => {
+                setActiveIndex(0);
+                setSearch(e.target.value);
+                setSearchOpen(true);
+              }}
+              onKeyDown={onSearchKey}
             />
-            <kbd>Ctrl K</kbd>
-            {results && (
-              <div
-                className="popover"
-                style={{ left: 0, right: "auto", width: "100%" }}
-                aria-label="Event search results"
-              >
-                <h4>
-                  {searching
-                    ? "Searching…"
-                    : `${results.length} event${results.length === 1 ? "" : "s"}`}
-                </h4>
-                {results.length === 0 && !searching && (
-                  <p className="meta" style={{ padding: "0 10px 8px" }}>
-                    No visible events match.
-                  </p>
+            <kbd>
+              <span className="search-mod">⌘</span>K
+            </kbd>
+            {showPalette && (
+              <div className="popover" id="global-search-results">
+                {!emptyQuery && (
+                  <>
+                    <h4>{searching ? "Searching" : `Events · ${eventItems.length}`}</h4>
+                    {eventItems.length === 0 && !searching && (
+                      <p className="popover-empty">
+                        No event you can see matches “{search.trim()}”. Try the club name or a
+                        shorter phrase.
+                      </p>
+                    )}
+                    {eventItems.map((item) => {
+                      const i = itemIndex();
+                      if (item.kind !== "event") return null;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          aria-current={activeIndex === i ? "true" : undefined}
+                          className={`popover-item${activeIndex === i ? " is-active" : ""}`}
+                          onMouseEnter={() => setActiveIndex(i)}
+                          onClick={() => choose(item)}
+                        >
+                          <span className="pi-icon tone-brand">
+                            <Icon name="calendar" size={15} />
+                          </span>
+                          <span>
+                            <b>{item.title}</b>
+                            <span>{item.when}</span>
+                          </span>
+                          <span className="pi-side">
+                            {item.status.replace(/_/g, " ").toLowerCase()}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </>
                 )}
-                {results.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className="popover-item"
-                    onClick={() => (isClubMember ? openEvent(r.id) : navigate("reports"))}
-                  >
-                    <span className="pi-icon tone-brand">
-                      <Icon name="calendar" size={16} />
-                    </span>
-                    <span>
-                      <b>{r.title}</b>
-                      <span>
-                        {new Date(r.startsAt).toLocaleDateString()} ·{" "}
-                        {r.status.replace(/_/g, " ").toLowerCase()}
-                      </span>
-                    </span>
-                  </button>
-                ))}
+                {emptyQuery && (
+                  <>
+                    <h4>Jump to</h4>
+                    {navMatches.map((item) => {
+                      const i = itemIndex();
+                      return (
+                        <button
+                          key={`nav-${item.tab}`}
+                          type="button"
+                          aria-current={activeIndex === i ? "true" : undefined}
+                          className={`popover-item${activeIndex === i ? " is-active" : ""}`}
+                          onMouseEnter={() => setActiveIndex(i)}
+                          onClick={() => choose(item)}
+                        >
+                          <span className="pi-icon tone-muted">
+                            <Icon name={item.icon} size={15} />
+                          </span>
+                          <span>
+                            <b>{item.label}</b>
+                            <span>{item.hint}</span>
+                          </span>
+                          <span className="pi-side">
+                            <Kbd>↵</Kbd>
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {actions.length > 0 && <h4>Actions</h4>}
+                    {actions.map((item) => {
+                      const i = itemIndex();
+                      return (
+                        <button
+                          key={`action-${item.action}`}
+                          type="button"
+                          aria-current={activeIndex === i ? "true" : undefined}
+                          className={`popover-item${activeIndex === i ? " is-active" : ""}`}
+                          onMouseEnter={() => setActiveIndex(i)}
+                          onClick={() => choose(item)}
+                        >
+                          <span className="pi-icon tone-muted">
+                            <Icon name={item.icon} size={15} />
+                          </span>
+                          <span>
+                            <b>{item.label}</b>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+                <div className="popover-foot">
+                  <span>↑↓ to move · ↵ to open</span>
+                  <span>esc to close</span>
+                </div>
               </div>
             )}
           </div>
-          <div className="topbar-group">
+          <div className="topbar-date">{shortDate(now)}</div>
+          <div className="topbar-tools" ref={toolWrap}>
             {themeBtn}
             <button
               type="button"
@@ -523,16 +839,14 @@ function Shell() {
               aria-expanded={notifOpen}
               onClick={() => setNotifOpen((o) => !o)}
             >
-              <Icon name="bell" size={17} />
+              <Icon name="bell" size={16} />
               {attention > 0 && <span className="dot" />}
             </button>
             {notifOpen && (
               <div className="popover">
                 <h4>Needs attention</h4>
                 {attention === 0 && (
-                  <p className="meta" style={{ padding: "0 10px 8px" }}>
-                    You are all caught up.
-                  </p>
+                  <p className="popover-empty">Nothing is waiting on you. The desk is clear.</p>
                 )}
                 {isStaff && dash && dash.work.approvalsPending > 0 && (
                   <button
@@ -541,7 +855,7 @@ function Shell() {
                     onClick={() => navigate("approvals")}
                   >
                     <span className="pi-icon tone-brand">
-                      <Icon name="inbox" size={16} />
+                      <Icon name="inbox" size={15} />
                     </span>
                     <span>
                       <b>
@@ -559,7 +873,7 @@ function Shell() {
                     onClick={() => navigate("verification")}
                   >
                     <span className="pi-icon tone-mint">
-                      <Icon name="shield" size={16} />
+                      <Icon name="shield" size={15} />
                     </span>
                     <span>
                       <b>
@@ -577,7 +891,7 @@ function Shell() {
                     onClick={() => navigate(isClubMember ? "events" : "reports")}
                   >
                     <span className="pi-icon tone-peach">
-                      <Icon name="alert" size={16} />
+                      <Icon name="alert" size={15} />
                     </span>
                     <span>
                       <b>
@@ -588,12 +902,25 @@ function Shell() {
                     </span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="popover-item"
+                  onClick={() => navigate("dashboard")}
+                >
+                  <span className="pi-icon tone-muted">
+                    <Icon name="dashboard" size={15} />
+                  </span>
+                  <span>
+                    <b>The full picture</b>
+                    <span>Counts, pipeline and what is next</span>
+                  </span>
+                </button>
               </div>
             )}
             <button
               type="button"
               className="avatar"
-              style={{ border: "1px solid var(--line)", cursor: "pointer" }}
+              style={{ border: "1px solid var(--line)", cursor: "pointer", width: 32, height: 32 }}
               aria-label="Account settings"
               onClick={() => navigate("account")}
             >
@@ -603,49 +930,57 @@ function Shell() {
         </header>
 
         <main id="main-content" className="content">
+          {!online && (
+            <output className="offline-bar">
+              <Icon name="alert" size={14} />
+              <span>
+                You are offline. Reading cached screens still works on the phone; this console needs
+                a connection to record changes.
+              </span>
+            </output>
+          )}
           {me.user.status !== "ACTIVE" && (
             <p className="warn-note">
-              Your account status is {me.user.status.replace(/_/g, " ")}. Some actions are
-              unavailable until it is active.
+              <Icon name="alert" size={15} />
+              <span>
+                Your account is {me.user.status.replace(/_/g, " ").toLowerCase()}. Some actions stay
+                locked until an administrator activates it.
+              </span>
             </p>
           )}
-          {active !== "dashboard" && (
-            <div className="page-head">
-              <div>
-                <p className="eyebrow">{TAB_META[active].group}</p>
-                <h1>{TAB_META[active].label}</h1>
-                <p className="lead">{SECTION_LEDE[active]}</p>
-              </div>
-            </div>
-          )}
-          <ErrorBoundary key={active}>
-            <Suspense
-              fallback={
-                <div aria-busy="true">
-                  <div className="skeleton" style={{ height: 28, width: 240, marginBottom: 16 }} />
-                  <div className="skeleton" style={{ height: 220 }} />
+
+          <div className="page" key={active}>
+            {active !== "dashboard" && (
+              <div className="page-head">
+                <div>
+                  <p className="eyebrow">{TAB_META[active].group}</p>
+                  <h1>{TAB_META[active].label}</h1>
+                  <p className="lead">{SECTION_LEDE[active]}</p>
                 </div>
-              }
-            >
-              {active === "dashboard" && (
-                <DashboardPanel onNavigate={navigate} onOpenEvent={openEvent} />
-              )}
-              {active === "events" && isClubMember && (
-                <CoordinatorPanel
-                  focusEventId={focusEvent}
-                  onFocusConsumed={() => setFocusEvent(null)}
-                  newDraftSignal={newDraft}
-                />
-              )}
-              {active === "approvals" && isStaff && <ApprovalsPanel />}
-              {active === "verification" && (isFaculty || isSenior) && <VerificationPanel />}
-              {active === "resources" && <ResourcesPanel />}
-              {active === "clubs" && (isClubMember || isStaff) && <ClubsPanel />}
-              {active === "reports" && (isClubMember || isStaff) && <ReportsPanel />}
-              {active === "admin" && isAdmin && <AdminPanel />}
-              {active === "account" && <AccountPanel />}
-            </Suspense>
-          </ErrorBoundary>
+              </div>
+            )}
+            <ErrorBoundary key={active}>
+              <Suspense fallback={<PanelSkeleton />}>
+                {active === "dashboard" && (
+                  <DashboardPanel onNavigate={navigate} onOpenEvent={openEvent} />
+                )}
+                {active === "events" && isClubMember && (
+                  <CoordinatorPanel
+                    focusEventId={focusEvent}
+                    onFocusConsumed={consumeFocus}
+                    newDraftSignal={newDraft}
+                  />
+                )}
+                {active === "approvals" && isStaff && <ApprovalsPanel />}
+                {active === "verification" && (isFaculty || isSenior) && <VerificationPanel />}
+                {active === "resources" && <ResourcesPanel />}
+                {active === "clubs" && (isClubMember || isStaff) && <ClubsPanel />}
+                {active === "reports" && (isClubMember || isStaff) && <ReportsPanel />}
+                {active === "admin" && isAdmin && <AdminPanel />}
+                {active === "account" && <AccountPanel />}
+              </Suspense>
+            </ErrorBoundary>
+          </div>
         </main>
       </div>
     </div>
@@ -660,17 +995,23 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   render() {
     if (this.state.error)
       return (
-        <Card title="Something went wrong in this screen">
+        <Card title="This screen stopped responding" subtitle="The rest of the console is fine.">
           <p className="bad-note" role="alert">
-            {this.state.error.message}
+            <Icon name="alert" size={15} />
+            <span>{this.state.error.message}</span>
           </p>
           <p className="meta">
-            Your data is safe. Reload the screen; if it keeps happening, share the request id from
+            Your data is safe. Reload this section; if it keeps happening, share the request id from
             the API response with the administrator.
           </p>
-          <button type="button" onClick={() => this.setState({ error: null })}>
-            Try again
-          </button>
+          <div className="row">
+            <button type="button" onClick={() => this.setState({ error: null })}>
+              <Icon name="refresh" size={15} /> Try again
+            </button>
+            <button type="button" className="ghost" onClick={() => location.reload()}>
+              Reload the console
+            </button>
+          </div>
         </Card>
       );
     return this.props.children;

@@ -1,8 +1,20 @@
 import { ACCOUNT_TYPE_LABELS, GLOBAL_ROLE_LABELS, type GlobalRole } from "@campusops/shared/ui";
 import * as DocumentPicker from "expo-document-picker";
 import { useState } from "react";
-import { View } from "react-native";
-import { Badge, Button, Card, Field, Muted, Note, Row, Screen, Title } from "../components/ui";
+import { Text, View } from "react-native";
+import {
+  Badge,
+  Button,
+  Card,
+  Field,
+  Muted,
+  Note,
+  Row,
+  Screen,
+  Title,
+  colors,
+  fonts,
+} from "../components/ui";
 import { api, errorMessage } from "../lib/api";
 import { registerForPush } from "../lib/push";
 import { useSession } from "../lib/session";
@@ -240,10 +252,65 @@ export function ProfileScreen({ onComplaints }: { onComplaints: () => void }) {
           disabled={busy}
         />
       </Card>
-      <Muted>
-        CampusOps · Secure account services enabled. API:{" "}
-        {config?.storageMode === "s3" ? "private file storage" : "file storage unavailable"}.
-      </Muted>
+      <Card title="About CampusOps">
+        <Muted>
+          The student side of the campus event desk: register, carry your pass, get told when
+          something changes, and raise an issue without walking to the office.
+        </Muted>
+        <Row label="Version" value="2.0" />
+        <Row
+          label="File storage"
+          value={config?.storageMode === "s3" ? "private, encrypted" : "not configured"}
+        />
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "flex-end",
+            justifyContent: "space-between",
+            gap: 12,
+            borderTopWidth: 1,
+            borderTopColor: colors.line,
+            paddingTop: 12,
+            marginTop: 2,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.mono,
+              fontSize: 9,
+              letterSpacing: 1.3,
+              textTransform: "uppercase",
+              color: colors.muted,
+            }}
+          >
+            Made by
+          </Text>
+          <Text
+            style={{
+              fontFamily: fonts.display,
+              fontSize: 22,
+              fontWeight: "500",
+              color: colors.ink,
+              letterSpacing: -0.3,
+            }}
+          >
+            Vineet
+          </Text>
+        </View>
+      </Card>
+      <Text
+        style={{
+          fontFamily: fonts.mono,
+          fontSize: 9,
+          letterSpacing: 1.4,
+          textTransform: "uppercase",
+          color: colors.muted,
+          textAlign: "center",
+          paddingTop: 4,
+        }}
+      >
+        CampusOps · student events · {new Date().getFullYear()}
+      </Text>
     </Screen>
   );
 }
@@ -330,7 +397,7 @@ export function PendingScreen() {
   }
 
   return (
-    <Screen>
+    <Screen bottomGap={28}>
       <Title
         eyebrow="One more step"
         title={

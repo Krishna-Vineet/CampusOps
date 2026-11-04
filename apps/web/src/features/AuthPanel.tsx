@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from "react";
+import { Icon } from "../components/icons";
 import { Card, ErrorNote, Field, SuccessNote } from "../components/ui";
 import { api, errorMessage } from "../lib/api";
 
@@ -11,6 +12,25 @@ type Config = {
 type Challenge = { challengeId: string; demoOtp?: string; delivery: string; expiresAt: string };
 
 type Mode = "login" | "forgot" | "code";
+
+const MODE_COPY: Record<Mode, { tab: string; title: string; subtitle: string }> = {
+  login: {
+    tab: "Sign in",
+    title: "Welcome back.",
+    subtitle: "Use the staff email your institution has on record.",
+  },
+  forgot: {
+    tab: "Reset password",
+    title: "Reset a password.",
+    subtitle:
+      "We will send a six-digit code. New staff use the same form to activate a provisioned account.",
+  },
+  code: {
+    tab: "Have a code",
+    title: "Enter your code.",
+    subtitle: "The code is valid for a short window and can be used once.",
+  },
+};
 
 /**
  * Staff sign-in for the management website.
@@ -90,35 +110,25 @@ export function AuthPanel({
   }
 
   const labels: Record<Mode, string> = {
-    login: "Sign in",
-    forgot: "Send code",
-    code: "Set password",
+    login: "Sign in to the console",
+    forgot: "Send me a code",
+    code: "Set password & continue",
   };
+  const copy = MODE_COPY[mode];
 
   return (
-    <Card
-      title={
-        mode === "login"
-          ? "Welcome back"
-          : mode === "forgot"
-            ? "Reset your password"
-            : "Enter your code"
-      }
-    >
-      <p className="meta">
-        For coordinators, faculty, HOD/Dean and Admin. Students register and take part in the mobile
-        app.
-      </p>
-
-      <div className="subtabs">
+    <Card title={copy.title} subtitle={copy.subtitle}>
+      <div className="subtabs" role="tablist" aria-label="Sign-in options">
         {(["login", "forgot", "code"] as Mode[]).map((m) => (
           <button
             key={m}
             type="button"
+            role="tab"
+            aria-selected={mode === m}
             className={mode === m ? "active" : "ghost"}
             onClick={() => switchMode(m)}
           >
-            {m === "forgot" ? "Forgot password" : m === "code" ? "Enter a code" : "Sign in"}
+            {MODE_COPY[m].tab}
           </button>
         ))}
       </div>
@@ -130,6 +140,7 @@ export function AuthPanel({
             type="email"
             required
             autoComplete="username"
+            placeholder="you@institution.edu"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -137,69 +148,89 @@ export function AuthPanel({
 
         {mode === "login" && (
           <Field label="Password">
-            <input
-              name="password"
-              type={showPw ? "text" : "password"}
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <span className="input-group">
+              <input
+                name="password"
+                type={showPw ? "text" : "password"}
+                required
+                autoComplete="current-password"
+                aria-label="Password"
+                placeholder="Your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                className="input-reveal"
+                aria-label={showPw ? "Hide password" : "Show password"}
+                onClick={() => setShowPw((v) => !v)}
+              >
+                <Icon name={showPw ? "eye-off" : "eye"} size={15} />
+              </button>
+            </span>
           </Field>
         )}
 
-        {mode === "login" && (
-          <label className="checkbox" style={{ marginTop: -6 }}>
-            <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} />{" "}
-            Show password
-          </label>
-        )}
-
         {mode === "code" && (
-          <Field label="6-digit code">
+          <Field label="6-digit code" hint="Check the inbox for your staff email.">
             <input
               required
               inputMode="numeric"
               pattern="\d{6}"
               maxLength={6}
+              autoComplete="one-time-code"
+              placeholder="000000"
+              className="otp-input"
               value={otp}
-              onChange={(e) => setOtp(e.target.value)}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
             />
           </Field>
         )}
 
         {mode === "code" && (
-          <>
-            <Field label="New password">
+          <Field label="New password" hint="At least 10 characters. Longer is better.">
+            <span className="input-group">
               <input
                 type={showPw ? "text" : "password"}
                 required
                 minLength={10}
                 autoComplete="new-password"
+                aria-label="New password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
               />
-            </Field>
-            <label className="checkbox" style={{ marginTop: -6 }}>
-              <input
-                type="checkbox"
-                checked={showPw}
-                onChange={(e) => setShowPw(e.target.checked)}
-              />{" "}
-              Show new password
-            </label>
-          </>
+              <button
+                type="button"
+                className="input-reveal"
+                aria-label={showPw ? "Hide password" : "Show password"}
+                onClick={() => setShowPw((v) => !v)}
+              >
+                <Icon name={showPw ? "eye-off" : "eye"} size={15} />
+              </button>
+            </span>
+          </Field>
         )}
 
         <button type="submit" disabled={busy}>
-          {busy ? "Working…" : labels[mode]}
+          {busy ? (
+            <>
+              <span className="btn-spinner" aria-hidden="true" /> Working…
+            </>
+          ) : (
+            <>
+              {labels[mode]} <Icon name="arrow-right" size={15} />
+            </>
+          )}
         </button>
       </form>
 
       {challenge?.demoOtp && config?.exposeDemoOtp && (
         <p className="note">
-          Demo mode: your code is <strong>{challenge.demoOtp}</strong>. In production this is
-          emailed instead of shown.
+          <Icon name="info" size={15} />
+          <span>
+            Demo mode: your code is <strong>{challenge.demoOtp}</strong>. In production this arrives
+            by email instead of on screen.
+          </span>
         </p>
       )}
 
@@ -208,15 +239,19 @@ export function AuthPanel({
 
       {mode === "login" && (
         <p className="hint">
-          Staff accounts are created by an administrator. New staff use{" "}
-          <strong>Forgot password</strong>
-          to request a code and activate their account.
+          No account yet? Staff accounts are created by an administrator, then activated with{" "}
+          <strong>Reset password</strong>. Students should use the CampusOps mobile app.
+        </p>
+      )}
+      {mode === "forgot" && (
+        <p className="hint">
+          For privacy, the same message is shown whether or not the address is registered.
         </p>
       )}
       {mode === "code" && (
         <p className="hint">
-          Use the 6-digit code from your email. This works both for a password reset and for
-          activating a newly provisioned staff account.
+          One code works for both cases: a password reset, or activating a newly provisioned staff
+          account. It expires shortly after it is issued.
         </p>
       )}
     </Card>

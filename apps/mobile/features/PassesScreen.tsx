@@ -14,6 +14,7 @@ import {
   Screen,
   Title,
   colors,
+  fonts,
 } from "../components/ui";
 import { api, errorMessage } from "../lib/api";
 import { when } from "../lib/format";
@@ -128,9 +129,13 @@ export function PassesScreen() {
   return (
     <Screen>
       <Title
-        eyebrow="Your wallet"
+        eyebrow={
+          passes.length
+            ? `${passes.length} active wallet${passes.length === 1 ? "" : "s"}`
+            : "Your wallet"
+        }
         title="Event passes"
-        subtitle="Show the right QR at the right place. Codes rotate automatically."
+        subtitle="Show one code at one gate. It rotates on its own, so a screenshot is useless."
       />
       <Note message={error} />
       {passes.length === 0 ? (
@@ -159,14 +164,37 @@ export function PassesScreen() {
           </ScrollView>
           {pass && (
             <>
-              <Card>
-                <Text style={{ fontSize: 20, fontWeight: "800", color: colors.ink }}>
-                  {pass.event.title}
-                </Text>
-                <Muted>
-                  {when(pass.event.startsAt, tz)} ·{" "}
-                  {pass.event.venueSummary ?? "Venue to be announced"}
-                </Muted>
+              <Card tone="ink">
+                <View style={{ gap: 5 }}>
+                  <Text
+                    style={{
+                      fontFamily: fonts.mono,
+                      fontSize: 8.5,
+                      letterSpacing: 1.5,
+                      textTransform: "uppercase",
+                      color: "rgba(246,241,229,0.5)",
+                    }}
+                  >
+                    {pass.event.status === "LIVE" ? "Live now" : "Your pass"}
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: fonts.display,
+                      fontSize: 24,
+                      fontWeight: "500",
+                      letterSpacing: -0.4,
+                      color: colors.cream,
+                      lineHeight: 28,
+                    }}
+                  >
+                    {pass.event.title}
+                  </Text>
+                  <Text style={{ color: "rgba(246,241,229,0.62)", fontSize: 12.5, lineHeight: 18 }}>
+                    {when(pass.event.startsAt, tz)}
+                    {" · "}
+                    {pass.event.venueSummary ?? "Venue to be announced"}
+                  </Text>
+                </View>
                 {pass.revokedAt && (
                   <Note message="This pass has been revoked. Contact the event coordinator." />
                 )}
@@ -204,7 +232,14 @@ export function PassesScreen() {
                         }}
                       >
                         <Text
-                          style={{ fontSize: 22, fontWeight: "800", color: colors.ink, flex: 1 }}
+                          style={{
+                            fontFamily: fonts.display,
+                            fontSize: 25,
+                            fontWeight: "500",
+                            letterSpacing: -0.4,
+                            color: colors.ink,
+                            flex: 1,
+                          }}
                         >
                           {qr.name}
                         </Text>
@@ -222,11 +257,33 @@ export function PassesScreen() {
                           tone="primary"
                         />
                       )}
-                      <View style={{ alignItems: "center", gap: 10, paddingVertical: 8 }}>
+                      <View style={{ alignItems: "center", gap: 10, paddingVertical: 10 }}>
                         {qr.availableNow && nonce ? (
                           <>
-                            <QrCode value={nonce.token} />
-                            <Muted>Refreshes in {seconds}s · valid for this QR only</Muted>
+                            <View
+                              style={{
+                                padding: 10,
+                                backgroundColor: "#ffffff",
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: colors.line,
+                              }}
+                            >
+                              <QrCode value={nonce.token} />
+                            </View>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <View
+                                style={{
+                                  width: 5,
+                                  height: 5,
+                                  borderRadius: 3,
+                                  backgroundColor: colors.good,
+                                }}
+                              />
+                              <Text style={{ fontSize: 11.5, color: colors.muted }}>
+                                Refreshes in {seconds}s · valid for this QR only
+                              </Text>
+                            </View>
                           </>
                         ) : codeBusy ? (
                           <Loading label="Preparing secure code…" />

@@ -1,7 +1,7 @@
 import { GLOBAL_ROLES, GLOBAL_ROLE_LABELS } from "@campusops/shared/ui";
 import { useCallback, useEffect, useState } from "react";
 import { ConfirmDialog, Pager, useAction, useToast } from "../components/feedback";
-import { Card, Empty, Field, formatWhen } from "../components/ui";
+import { Card, Empty, Field, SkeletonRows, formatWhen } from "../components/ui";
 import { type Page, api, errorMessage, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
 import { useSession } from "../lib/session";
@@ -300,7 +300,7 @@ function UsersSection() {
         </div>
 
         {loading ? (
-          <p className="meta">Loading…</p>
+          <SkeletonRows rows={6} />
         ) : rows.length === 0 ? (
           <Empty>No accounts match this filter.</Empty>
         ) : (

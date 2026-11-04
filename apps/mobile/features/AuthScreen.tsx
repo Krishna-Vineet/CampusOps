@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import { Button, Card, Chip, Field, Muted, Note, Screen, Title } from "../components/ui";
+import { Logo } from "../components/icons";
+import {
+  Button,
+  Card,
+  Chip,
+  Field,
+  Muted,
+  Note,
+  Screen,
+  Title,
+  colors,
+  fonts,
+} from "../components/ui";
 import { type AuthPayload, api, errorMessage } from "../lib/api";
 import { useSession } from "../lib/session";
 import type { Challenge } from "../lib/types";
@@ -143,9 +155,36 @@ export function AuthScreen() {
     reset: "Set new password",
   };
   return (
-    <Screen>
+    <Screen bottomGap={28}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 6 }}>
+        <Logo size={38} />
+        <View style={{ gap: 1 }}>
+          <Text
+            style={{
+              fontFamily: fonts.display,
+              fontSize: 21,
+              fontWeight: "600",
+              color: colors.ink,
+              letterSpacing: -0.5,
+            }}
+          >
+            CampusOps
+          </Text>
+          <Text
+            style={{
+              fontFamily: fonts.mono,
+              fontSize: 8.5,
+              letterSpacing: 1.4,
+              textTransform: "uppercase",
+              color: colors.muted,
+            }}
+          >
+            Student events
+          </Text>
+        </View>
+      </View>
       <Title
-        eyebrow="CampusOps"
+        eyebrow={mode === "login" ? "Welcome back" : registering ? "New account" : "Account access"}
         title={
           mode === "login"
             ? "Your campus, in your pocket."
@@ -153,7 +192,7 @@ export function AuthScreen() {
               ? "Join your next event."
               : "Account access"
         }
-        subtitle="Events, passes and event help — without the queue."
+        subtitle="Events, passes and event help, without the queue."
       />
       <Card>
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
@@ -201,7 +240,12 @@ export function AuthScreen() {
         )}
         {mode === "college" && (
           <>
-            <Field label="Roll number" value={rollNumber} onChangeText={setRollNumber} />
+            <Field
+              label="College ID number"
+              value={rollNumber}
+              onChangeText={setRollNumber}
+              placeholder="As printed on your college ID"
+            />
             <View style={{ gap: 8 }}>
               <Text style={{ fontWeight: "600" }}>Programme</Text>
               {programs.length === 0 ? (
@@ -229,7 +273,7 @@ export function AuthScreen() {
               maxLength={4}
               placeholder={String(new Date().getFullYear() + 4)}
             />
-            
+
             <Text style={{ fontWeight: "600" }}>Department</Text>
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
               {departments.map((d) => (
@@ -294,12 +338,25 @@ export function AuthScreen() {
             tone="neutral"
             message={
               mode === "college"
-                ? "After email verification, a faculty member must verify your student account. You cannot edit your verified profile yourself."
+                ? "After email verification, a faculty member verifies your college ID. You cannot edit a verified profile yourself."
                 : "Outside students need email verification only. You will see public events and events you are invited to."
             }
           />
         )}
       </Card>
+      <Text
+        style={{
+          fontFamily: fonts.mono,
+          fontSize: 9,
+          letterSpacing: 1.4,
+          textTransform: "uppercase",
+          color: colors.muted,
+          textAlign: "center",
+          paddingTop: 6,
+        }}
+      >
+        CampusOps · Made by Vineet
+      </Text>
     </Screen>
   );
 }

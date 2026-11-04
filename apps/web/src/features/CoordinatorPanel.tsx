@@ -7,6 +7,7 @@ import {
 } from "@campusops/shared/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pager } from "../components/feedback";
+import { Icon } from "../components/icons";
 import {
   ApprovalBadge,
   Card,
@@ -15,6 +16,7 @@ import {
   EventBadge,
   Field,
   ReservationBadge,
+  SkeletonRows,
   SuccessNote,
   formatWhen,
   fromLocalInput,
@@ -103,6 +105,7 @@ export function CoordinatorPanel({
   const [eventsTotal, setEventsTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const loadEvents = useCallback(
     async (offset = 0) => {
@@ -113,6 +116,7 @@ export function CoordinatorPanel({
       setEventOffset(offset);
       setEventsMore(page.hasMore ?? false);
       setEventsTotal(page.total ?? page.items.length);
+      setLoading(false);
     },
     [statusFilter, search],
   );
@@ -127,6 +131,7 @@ export function CoordinatorPanel({
         setApprovers(faculty.items);
       } catch (err) {
         setError(errorMessage(err));
+        setLoading(false);
       }
     })();
   }, [loadEvents]);
@@ -285,6 +290,11 @@ export function CoordinatorPanel({
 
       <Card
         title={isCoordinator ? "My club events" : "Club events (read-only)"}
+        subtitle={
+          isCoordinator
+            ? "Every draft, submission and published event across the clubs you lead."
+            : "Read-only view of the clubs you are faculty for."
+        }
         actions={
           <button
             type="button"
@@ -296,7 +306,7 @@ export function CoordinatorPanel({
             }
             onClick={() => setForm(defaultForm(clubs[0]?.id ?? ""))}
           >
-            New draft
+            <Icon name="plus" size={14} /> New draft
           </button>
         }
       >
@@ -323,10 +333,32 @@ export function CoordinatorPanel({
             {eventsTotal} event{eventsTotal === 1 ? "" : "s"}
           </span>
         </div>
-        {clubs.length === 0 ? (
-          <Empty>You are not an active coordinator of any club yet.</Empty>
+        {loading ? (
+          <SkeletonRows rows={4} />
+        ) : clubs.length === 0 ? (
+          <Empty title="No club yet" icon="users">
+            You are not an active coordinator of any club. A club lead or administrator can add you.
+          </Empty>
         ) : events.length === 0 ? (
-          <Empty>No events yet. Create a draft to start the approval flow.</Empty>
+          <Empty
+            title={search || statusFilter ? "Nothing matches that filter" : "The calendar is empty"}
+            icon="calendar"
+            action={
+              isCoordinator && !search && !statusFilter ? (
+                <button
+                  type="button"
+                  className="ghost tiny"
+                  onClick={() => setForm(defaultForm(clubs[0]?.id ?? ""))}
+                >
+                  Start a draft
+                </button>
+              ) : undefined
+            }
+          >
+            {search || statusFilter
+              ? "Try a shorter search or clear the status filter."
+              : "Create a draft, add its permissions, and the approval flow begins from here."}
+          </Empty>
         ) : (
           <div className="scroll-x">
             <table className="grid">
@@ -489,13 +521,19 @@ export function CoordinatorPanel({
       )}
 
       {selected && (
-        <Card title={selected.event.title} actions={<EventBadge status={selected.event.status} />}>
-          <p className="meta">
-            {selected.club.name} · {formatWhen(selected.event.startsAt)} –{" "}
-            {formatWhen(selected.event.endsAt)} · revision {selected.event.currentRevision} ·
-            capacity {selected.event.capacity}
-          </p>
-
+        <Card
+          title={selected.event.title}
+          subtitle={`${selected.club.name} · ${formatWhen(selected.event.startsAt)} – ${formatWhen(
+            selected.event.endsAt,
+          )}`}
+          actions={
+            <>
+              <span className="badge muted">rev {selected.event.currentRevision}</span>
+              <span className="badge muted">{selected.event.capacity} seats</span>
+              <EventBadge status={selected.event.status} />
+            </>
+          }
+        >
           {selected.bundle ? (
             <>
               <p className="meta">
