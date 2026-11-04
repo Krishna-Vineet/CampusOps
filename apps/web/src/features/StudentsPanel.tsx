@@ -13,12 +13,15 @@ type StudentRow = {
   status: string;
   createdAt: string;
   departmentName: string | null;
+  programName: string | null;
   profile: {
     studentKind: string;
     institutionName: string;
     rollNumber: string | null;
     departmentId: string | null;
+    programId: string | null;
     program: string | null;
+    studyYear: number | null;
     graduationYear: number | null;
     collegeIdNumber: string | null;
     verifiedAt: string | null;
@@ -28,6 +31,14 @@ type StudentRow = {
 };
 
 type Department = { id: string; name: string };
+type ProgramOption = {
+  id: string;
+  name: string;
+  departmentName: string | null;
+  foundationYears: number;
+  durationYears: number;
+  isActive: boolean;
+};
 
 const STATUSES = [
   "PENDING_EMAIL",
@@ -49,6 +60,9 @@ export function StudentsPanel() {
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [programs, setPrograms] = useState<ProgramOption[]>([]);
+  const [placement, setPlacement] = useState({ programId: "", studyYear: "" });
+  const [savingPlacement, setSavingPlacement] = useState(false);
   const [filters, setFilters] = useState({ q: "", departmentId: "", status: "" });
   const [applied, setApplied] = useState({ q: "", departmentId: "", status: "" });
   const [detail, setDetail] = useState<StudentRow | null>(null);
@@ -79,13 +93,63 @@ export function StudentsPanel() {
   }, [load]);
 
   useEffect(() => {
-    api<{ items: Department[] }>("/departments")
-      .then((d) => setDepartments(d.items))
+    Promise.all([
+      api<{ items: Department[] }>("/departments"),
+      api<{ items: ProgramOption[] }>("/departments/programs?includeInactive=true"),
+    ])
+      .then(([d, p]) => {
+        setDepartments(d.items);
+        setPrograms(p.items);
+      })
       .catch(() => {});
   }, []);
 
   const deptName = (id: string | null, fallback: string | null) =>
     id ? (departments.find((d) => d.id === id)?.name ?? fallback ?? "—") : (fallback ?? "—");
+
+  function openStudent(row: StudentRow) {
+    setDetail(row);
+    setPlacement({
+      programId: row.profile.programId ?? "",
+      studyYear: row.profile.studyYear ? String(row.profile.studyYear) : "",
+    });
+  }
+
+  async function savePlacement() {
+    if (!detail) return;
+    const selected = programs.find((p) => p.id === placement.programId);
+    if (selected && selected.foundationYears > 0 && !placement.studyYear) {
+      toast.err("Choose a year of study so foundation-year membership is correct.");
+      return;
+    }
+    setSavingPlacement(true);
+    try {
+      const result = await api<{ profile: StudentRow["profile"] }>(
+        `/faculty/students/${detail.id}/profile`,
+        {
+          programId: placement.programId || null,
+          studyYear: placement.studyYear ? Number(placement.studyYear) : null,
+          program: selected?.name ?? null,
+        },
+        { method: "PATCH" },
+      );
+      const updated: StudentRow = {
+        ...detail,
+        profile: result.profile,
+        programName: selected?.name ?? null,
+        departmentName:
+          departments.find((d) => d.id === result.profile.departmentId)?.name ??
+          detail.departmentName,
+      };
+      setDetail(updated);
+      setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      toast.ok("Programme placement updated. Department membership follows the new year.");
+    } catch (err) {
+      toast.err(errorMessage(err));
+    } finally {
+      setSavingPlacement(false);
+    }
+  }
 
   return (
     <>
@@ -184,14 +248,21 @@ export function StudentsPanel() {
                       <td className="meta">
                         {deptName(row.profile.departmentId, row.departmentName)}
                       </td>
-                      <td className="meta">{row.profile.program ?? "—"}</td>
+                      <td className="meta">
+                        {row.programName ?? row.profile.program ?? "—"}
+                        {row.profile.studyYear ? ` · year ${row.profile.studyYear}` : ""}
+                      </td>
                       <td>
                         <span className={`badge ${row.status === "ACTIVE" ? "good" : "muted"}`}>
                           {statusLabel(row.status)}
                         </span>
                       </td>
                       <td>
-                        <button type="button" className="ghost tiny" onClick={() => setDetail(row)}>
+                        <button
+                          type="button"
+                          className="ghost tiny"
+                          onClick={() => openStudent(row)}
+                        >
                           Open
                         </button>
                       </td>
@@ -236,7 +307,9 @@ export function StudentsPanel() {
               <dt>Department</dt>
               <dd>{deptName(detail.profile.departmentId, detail.departmentName)}</dd>
               <dt>Programme</dt>
-              <dd>{detail.profile.program ?? "—"}</dd>
+              <dd>{detail.programName ?? detail.profile.program ?? "—"}</dd>
+              <dt>Year of study</dt>
+              <dd>{detail.profile.studyYear ?? "—"}</dd>
               <dt>Graduation year</dt>
               <dd>{detail.profile.graduationYear ?? "—"}</dd>
               <dt>Institution</dt>
@@ -254,6 +327,48 @@ export function StudentsPanel() {
                 </>
               )}
             </dl>
+            <div className="placement-editor">
+              <h3>Programme placement</h3>
+              <p className="hint">
+                The year decides whether the student sits in a foundation department or their
+                programme's home department. The rule comes from Administration → Departments, not
+                from a fixed year number.
+              </p>
+              <div className="grid-2">
+                <Field label="Programme">
+                  <select
+                    value={placement.programId}
+                    onChange={(e) => setPlacement({ ...placement, programId: e.target.value })}
+                  >
+                    <option value="">No programme</option>
+                    {programs
+                      .filter((p) => p.isActive || p.id === placement.programId)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                          {p.departmentName ? ` · ${p.departmentName}` : ""}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+                <Field label="Year of study" hint="Used to resolve foundation and home years.">
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={placement.studyYear}
+                    onChange={(e) => setPlacement({ ...placement, studyYear: e.target.value })}
+                  />
+                </Field>
+              </div>
+              <button
+                type="button"
+                disabled={savingPlacement || !placement.programId}
+                onClick={() => void savePlacement()}
+              >
+                {savingPlacement ? "Saving…" : "Save placement"}
+              </button>
+            </div>
             <p className="meta">
               Students manage their own contact details in the mobile app. Verification decisions
               live under Student verification.

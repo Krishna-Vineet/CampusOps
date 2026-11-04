@@ -60,9 +60,7 @@ describe("web request payloads match the API schemas", () => {
 
   test("inbox scope values are the ones the API accepts", async () => {
     const src = await source("features/ApprovalsPanel.tsx");
-    const scopes = [...src.matchAll(/<option value="(all|assigned|queue|actionable)">/g)].map(
-      (m) => m[1],
-    );
+    const scopes = [...src.matchAll(/\[\s*"(all|assigned|queue|actionable)",/g)].map((m) => m[1]);
     expect(scopes.length).toBeGreaterThan(0);
     for (const scope of scopes) {
       expect(shared.approvalInboxQuerySchema.safeParse({ scope }).success).toBe(true);
@@ -70,7 +68,10 @@ describe("web request payloads match the API schemas", () => {
   });
 
   test("coordinator submission matches submitEventSchema", async () => {
-    const src = await source("features/CoordinatorPanel.tsx");
+    const src = [
+      await source("features/CoordinatorPanel.tsx"),
+      await source("features/EventApprovals.tsx"),
+    ].join("\n");
     expect(src).toContain("expectedRevision:");
     expect(src).toContain("assignedApproverId:");
     const parsed = shared.submitEventSchema.safeParse({

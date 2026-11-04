@@ -50,16 +50,20 @@ facultyRoutes.post("/students/:id/reject", requireRole("FACULTY"), async (c) => 
   return ok(c, result);
 });
 
-facultyRoutes.patch("/students/:id/profile", requireRole("FACULTY"), async (c) => {
-  const input = await parseJson(c, schemas.profilePatchSchema);
-  const result = await service.patchStudentProfile(
-    c.get("auth"),
-    c.req.param("id"),
-    input,
-    auditContext(c),
-  );
-  return ok(c, result.after);
-});
+facultyRoutes.patch(
+  "/students/:id/profile",
+  requireRole("FACULTY", "HOD_DEAN", "ADMIN"),
+  async (c) => {
+    const input = await parseJson(c, schemas.profilePatchSchema);
+    const result = await service.patchStudentProfile(
+      c.get("auth"),
+      c.req.param("id"),
+      input,
+      auditContext(c),
+    );
+    return ok(c, result.after);
+  },
+);
 
 facultyRoutes.get("/students/:id/files/:fileId/download", requireRole("FACULTY"), async (c) => {
   const student = await service.getStudent(c.get("auth"), c.req.param("id"));

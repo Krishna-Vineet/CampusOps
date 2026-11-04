@@ -15,7 +15,7 @@ import {
   canTransition,
   defaultEligibilityPolicy,
 } from "@campusops/shared/ui";
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { type ReactNode, Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { ConfirmDialog, Loading, Pager, useAction, useToast } from "../components/feedback";
 import {
   Card,
@@ -102,7 +102,9 @@ const AnnouncementsPanel = lazy(() =>
   import("./AnnouncementsPanel").then((m) => ({ default: m.AnnouncementsPanel })),
 );
 
-type Tab =
+export type EventWorkspaceTab =
+  | "overview"
+  | "approvals"
   | "run"
   | "roster"
   | "quiz"
@@ -112,6 +114,40 @@ type Tab =
   | "edit"
   | "invitations"
   | "history";
+
+const TAB_GROUPS: Array<{ label: string; tabs: Array<[EventWorkspaceTab, string]> }> = [
+  {
+    label: "Plan",
+    tabs: [
+      ["overview", "Overview"],
+      ["approvals", "Approvals"],
+      ["edit", "Edit details"],
+    ],
+  },
+  {
+    label: "People",
+    tabs: [
+      ["roster", "Participants"],
+      ["invitations", "Invitations"],
+    ],
+  },
+  {
+    label: "Run",
+    tabs: [
+      ["run", "Day of event"],
+      ["access", "Access QRs"],
+    ],
+  },
+  {
+    label: "Engage",
+    tabs: [
+      ["announcements", "Announcements"],
+      ["quiz", "Quiz"],
+      ["complaints", "Complaints"],
+    ],
+  },
+  { label: "Record", tabs: [["history", "History & audit"]] },
+];
 
 function toForm(e: Detail): EditForm {
   return {
@@ -145,14 +181,20 @@ function toForm(e: Detail): EditForm {
 export function EventWorkspace({
   event,
   onChanged,
+  approvals,
+  overview,
+  initialTab,
 }: {
   event: EventRow;
   onChanged: () => Promise<void>;
+  approvals?: ((go: (tab: EventWorkspaceTab) => void) => ReactNode) | undefined;
+  overview?: ((go: (tab: EventWorkspaceTab) => void) => ReactNode) | undefined;
+  initialTab?: EventWorkspaceTab | undefined;
 }) {
   const toast = useToast();
   const action = useAction();
   const { isAdmin, me } = useSession();
-  const [tab, setTab] = useState<Tab>("run");
+  const [tab, setTab] = useState<EventWorkspaceTab>(initialTab ?? "overview");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [form, setForm] = useState<EditForm | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -186,7 +228,7 @@ export function EventWorkspace({
   }, [id]);
 
   useEffect(() => {
-    setTab("run");
+    setTab(initialTab ?? "overview");
     setInvites([]);
     setRevisions([]);
     setAudit([]);
@@ -195,7 +237,7 @@ export function EventWorkspace({
     api<{ items: Department[] }>("/departments")
       .then((r) => setDepartments(r.items))
       .catch(() => setDepartments([]));
-  }, [loadDetail]);
+  }, [loadDetail, initialTab]);
 
   const loadInvites = useCallback(async () => {
     try {
@@ -226,7 +268,7 @@ export function EventWorkspace({
     [id],
   );
 
-  function selectTab(next: Tab) {
+  function selectTab(next: EventWorkspaceTab) {
     setTab(next);
     if (next === "invitations") void loadInvites();
     if (next === "history") void loadHistory(0);
@@ -330,506 +372,524 @@ export function EventWorkspace({
   const live = detail ?? event;
 
   return (
-    <Card title="Event operations">
-      <div className="subtabs">
-        {(
-          [
-            ["run", "Day of event"],
-            ["roster", "Participants"],
-            ["quiz", "Quiz"],
-            ["access", "Access QRs"],
-            ["announcements", "Announcements"],
-            ["complaints", "Complaints"],
-            ["edit", "Edit details"],
-            ["invitations", "Invitations"],
-            ["history", "History"],
-          ] as Array<[Tab, string]>
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            className={tab === key ? "active" : "ghost"}
-            onClick={() => selectTab(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+    <Card title="Manage event" subtitle="Everything for this event, grouped by what you are doing.">
+      <div className="event-workspace">
+        <nav className="event-nav" aria-label="Event sections">
+          {TAB_GROUPS.map((group) => (
+            <div className="event-nav-group" key={group.label}>
+              <span>{group.label}</span>
+              {group.tabs.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={tab === key ? "active" : "ghost"}
+                  aria-current={tab === key ? "page" : undefined}
+                  onClick={() => selectTab(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
 
-      <ErrorNote message={error} />
+        <div className="event-content">
+          <ErrorNote message={error} />
 
-      {tab === "run" && (
-        <>
-          <p className="meta">
-            Current status: <strong>{event.status.replace(/_/g, " ")}</strong> · revision{" "}
-            {event.currentRevision}
-          </p>
-          <div className="row">
-            <button
-              type="button"
-              disabled={!canStart || action.busy}
-              onClick={() => setConfirm("start")}
-            >
-              Start event
-            </button>
-            <button
-              type="button"
-              disabled={!canComplete || action.busy}
-              onClick={() => setConfirm("complete")}
-            >
-              Mark completed
-            </button>
-          </div>
-          <ul className="plain hint">
-            <li>
-              <strong>Start</strong> moves a published event to LIVE so check-in scanning can run.
-            </li>
-            <li>
-              <strong>Complete</strong> closes the event and releases its resource holds. Reports
-              can be filed once the event has ended.
-            </li>
-            {!canStart && !canComplete && (
-              <li>
-                No day-of action is available from {event.status.replace(/_/g, " ")}. Publish the
-                event first, or check that it is not already closed.
-              </li>
-            )}
-          </ul>
-          {live.cancellationReason && (
-            <p className="warn-note">Cancellation reason: {live.cancellationReason}</p>
+          {tab === "overview" &&
+            (overview ? (
+              overview(selectTab)
+            ) : (
+              <p className="meta">
+                {event.status.replace(/_/g, " ")} · revision {event.currentRevision}
+              </p>
+            ))}
+
+          {tab === "approvals" &&
+            (approvals ? (
+              approvals(selectTab)
+            ) : (
+              <Empty>Approval details are not available for this event.</Empty>
+            ))}
+
+          {tab === "run" && (
+            <>
+              <p className="meta">
+                Current status: <strong>{event.status.replace(/_/g, " ")}</strong> · revision{" "}
+                {event.currentRevision}
+              </p>
+              <div className="row">
+                <button
+                  type="button"
+                  disabled={!canStart || action.busy}
+                  onClick={() => setConfirm("start")}
+                >
+                  Start event
+                </button>
+                <button
+                  type="button"
+                  disabled={!canComplete || action.busy}
+                  onClick={() => setConfirm("complete")}
+                >
+                  Mark completed
+                </button>
+              </div>
+              <ul className="plain hint">
+                <li>
+                  <strong>Start</strong> moves a published event to LIVE so check-in scanning can
+                  run.
+                </li>
+                <li>
+                  <strong>Complete</strong> closes the event and releases its resource holds.
+                  Reports can be filed once the event has ended.
+                </li>
+                {!canStart && !canComplete && (
+                  <li>
+                    No day-of action is available from {event.status.replace(/_/g, " ")}. Publish
+                    the event first, or check that it is not already closed.
+                  </li>
+                )}
+              </ul>
+              {live.cancellationReason && (
+                <p className="warn-note">Cancellation reason: {live.cancellationReason}</p>
+              )}
+            </>
           )}
-        </>
-      )}
 
-      {tab === "roster" && (
-        <Suspense fallback={<Loading label="Loading participants…" />}>
-          <RosterPanel event={live} canManage={canManageEvent} />
-        </Suspense>
-      )}
+          {tab === "roster" && (
+            <Suspense fallback={<Loading label="Loading participants…" />}>
+              <RosterPanel event={live} canManage={canManageEvent} />
+            </Suspense>
+          )}
 
-      {tab === "quiz" && (
-        <Suspense fallback={<Loading label="Loading quiz…" />}>
-          <QuizPanel event={live} canManage={canManageEvent} />
-        </Suspense>
-      )}
+          {tab === "quiz" && (
+            <Suspense fallback={<Loading label="Loading quiz…" />}>
+              <QuizPanel event={live} canManage={canManageEvent} />
+            </Suspense>
+          )}
 
-      {tab === "announcements" && (
-        <Suspense fallback={<Loading label="Loading announcements…" />}>
-          <AnnouncementsPanel event={live} canManage={canManageEvent} />
-        </Suspense>
-      )}
+          {tab === "announcements" && (
+            <Suspense fallback={<Loading label="Loading announcements…" />}>
+              <AnnouncementsPanel event={live} canManage={canManageEvent} />
+            </Suspense>
+          )}
 
-      {tab === "access" && (
-        <Suspense fallback={<Loading label="Loading access QRs…" />}>
-          <AccessQrPanel event={live} canManage={canManageEvent} />
-        </Suspense>
-      )}
+          {tab === "access" && (
+            <Suspense fallback={<Loading label="Loading access QRs…" />}>
+              <AccessQrPanel event={live} canManage={canManageEvent} />
+            </Suspense>
+          )}
 
-      {tab === "complaints" && (
-        <Suspense fallback={<Loading label="Loading complaints…" />}>
-          <ComplaintsPanel event={live} canManage={canManageEvent} />
-        </Suspense>
-      )}
+          {tab === "complaints" && (
+            <Suspense fallback={<Loading label="Loading complaints…" />}>
+              <ComplaintsPanel event={live} canManage={canManageEvent} />
+            </Suspense>
+          )}
 
-      {tab === "edit" && !editable && (
-        <Empty>
-          Only a DRAFT can be edited. Create a new revision from the approvals card to change a
-          submitted event; changing a critical field will require fresh approvals.
-        </Empty>
-      )}
+          {tab === "edit" && !editable && (
+            <Empty>
+              Only a DRAFT can be edited. Open <strong>Approvals</strong> and choose{" "}
+              <strong>Revise event</strong> to turn a submitted event into a new draft; changing a
+              critical field will require fresh approvals.
+            </Empty>
+          )}
 
-      {tab === "edit" && editable && !form && <Loading label="Loading draft…" />}
+          {tab === "edit" && editable && !form && <Loading label="Loading draft…" />}
 
-      {tab === "edit" && editable && form && (
-        <form className="form wide" onSubmit={saveEdit}>
-          <Field label="Title">
-            <input
-              required
-              minLength={3}
-              maxLength={180}
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-            />
-          </Field>
-          <Field label="Template">
-            <select
-              value={form.template}
-              onChange={(e) => setForm({ ...form, template: e.target.value as EventTemplate })}
-            >
-              {EVENT_TEMPLATES.map((t) => (
-                <option key={t} value={t}>
-                  {EVENT_TEMPLATE_LABELS[t]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Audience">
-            <select
-              value={form.audience}
-              onChange={(e) => setForm({ ...form, audience: e.target.value as EventAudience })}
-            >
-              {EVENT_AUDIENCES.map((a) => (
-                <option key={a} value={a}>
-                  {EVENT_AUDIENCE_LABELS[a]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Admission" hint="Quiz modes need a quiz attached to the event.">
-            <select
-              value={form.admissionMode}
-              onChange={(e) => setForm({ ...form, admissionMode: e.target.value as AdmissionMode })}
-            >
-              {ADMISSION_MODES.map((m) => (
-                <option key={m} value={m}>
-                  {ADMISSION_MODE_LABELS[m]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Capacity">
-            <input
-              type="number"
-              min={1}
-              max={100000}
-              required
-              value={form.capacity}
-              onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })}
-            />
-          </Field>
-          <Field label="Starts">
-            <input
-              type="datetime-local"
-              required
-              value={form.startsAt}
-              onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
-            />
-          </Field>
-          <Field label="Ends">
-            <input
-              type="datetime-local"
-              required
-              value={form.endsAt}
-              onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
-            />
-          </Field>
-          <Field label="Registration opens">
-            <input
-              type="datetime-local"
-              required
-              value={form.registrationOpensAt}
-              onChange={(e) => setForm({ ...form, registrationOpensAt: e.target.value })}
-            />
-          </Field>
-          <Field label="Registration closes" hint="At or before the event starts.">
-            <input
-              type="datetime-local"
-              required
-              value={form.registrationClosesAt}
-              onChange={(e) => setForm({ ...form, registrationClosesAt: e.target.value })}
-            />
-          </Field>
-          <Field label="Venue summary">
-            <input
-              maxLength={300}
-              value={form.venueSummary}
-              onChange={(e) => setForm({ ...form, venueSummary: e.target.value })}
-            />
-          </Field>
-          <Field label="Online meeting URL">
-            <input
-              type="url"
-              value={form.onlineMeetingUrl}
-              placeholder="https://…"
-              onChange={(e) => setForm({ ...form, onlineMeetingUrl: e.target.value })}
-            />
-          </Field>
-          <Field label="Description">
-            <textarea
-              rows={3}
-              maxLength={8000}
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-            />
-          </Field>
-          <Field
-            label="Job description"
-            hint="For placement drives: role, requirements and package details."
-          >
-            <textarea
-              rows={4}
-              maxLength={20000}
-              value={form.jobDescription}
-              onChange={(e) => setForm({ ...form, jobDescription: e.target.value })}
-            />
-          </Field>
+          {tab === "edit" && editable && form && (
+            <form className="form wide" onSubmit={saveEdit}>
+              <Field label="Title">
+                <input
+                  required
+                  minLength={3}
+                  maxLength={180}
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                />
+              </Field>
+              <Field label="Template">
+                <select
+                  value={form.template}
+                  onChange={(e) => setForm({ ...form, template: e.target.value as EventTemplate })}
+                >
+                  {EVENT_TEMPLATES.map((t) => (
+                    <option key={t} value={t}>
+                      {EVENT_TEMPLATE_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Audience">
+                <select
+                  value={form.audience}
+                  onChange={(e) => setForm({ ...form, audience: e.target.value as EventAudience })}
+                >
+                  {EVENT_AUDIENCES.map((a) => (
+                    <option key={a} value={a}>
+                      {EVENT_AUDIENCE_LABELS[a]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Admission" hint="Quiz modes need a quiz attached to the event.">
+                <select
+                  value={form.admissionMode}
+                  onChange={(e) =>
+                    setForm({ ...form, admissionMode: e.target.value as AdmissionMode })
+                  }
+                >
+                  {ADMISSION_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {ADMISSION_MODE_LABELS[m]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Capacity">
+                <input
+                  type="number"
+                  min={1}
+                  max={100000}
+                  required
+                  value={form.capacity}
+                  onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })}
+                />
+              </Field>
+              <Field label="Starts">
+                <input
+                  type="datetime-local"
+                  required
+                  value={form.startsAt}
+                  onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
+                />
+              </Field>
+              <Field label="Ends">
+                <input
+                  type="datetime-local"
+                  required
+                  value={form.endsAt}
+                  onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
+                />
+              </Field>
+              <Field label="Registration opens">
+                <input
+                  type="datetime-local"
+                  required
+                  value={form.registrationOpensAt}
+                  onChange={(e) => setForm({ ...form, registrationOpensAt: e.target.value })}
+                />
+              </Field>
+              <Field label="Registration closes" hint="At or before the event starts.">
+                <input
+                  type="datetime-local"
+                  required
+                  value={form.registrationClosesAt}
+                  onChange={(e) => setForm({ ...form, registrationClosesAt: e.target.value })}
+                />
+              </Field>
+              <Field label="Venue summary">
+                <input
+                  maxLength={300}
+                  value={form.venueSummary}
+                  onChange={(e) => setForm({ ...form, venueSummary: e.target.value })}
+                />
+              </Field>
+              <Field label="Online meeting URL">
+                <input
+                  type="url"
+                  value={form.onlineMeetingUrl}
+                  placeholder="https://…"
+                  onChange={(e) => setForm({ ...form, onlineMeetingUrl: e.target.value })}
+                />
+              </Field>
+              <Field label="Description">
+                <textarea
+                  rows={3}
+                  maxLength={8000}
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                />
+              </Field>
+              <Field
+                label="Job description"
+                hint="For placement drives: role, requirements and package details."
+              >
+                <textarea
+                  rows={4}
+                  maxLength={20000}
+                  value={form.jobDescription}
+                  onChange={(e) => setForm({ ...form, jobDescription: e.target.value })}
+                />
+              </Field>
 
-          <fieldset className="span-2">
-            <legend>Who may register</legend>
-            <p className="hint">
-              Empty lists mean no restriction on that dimension. These rules are evaluated by the
-              server when a student applies.
-            </p>
-            <div className="row wrap">
-              {ACCOUNT_TYPES.map((t) => (
-                <label key={t} className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={form.policy.accountTypes.includes(t)}
+              <fieldset className="span-2">
+                <legend>Who may register</legend>
+                <p className="hint">
+                  Empty lists mean no restriction on that dimension. These rules are evaluated by
+                  the server when a student applies.
+                </p>
+                <div className="row wrap">
+                  {ACCOUNT_TYPES.map((t) => (
+                    <label key={t} className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={form.policy.accountTypes.includes(t)}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            policy: {
+                              ...form.policy,
+                              accountTypes: e.target.checked
+                                ? [...form.policy.accountTypes, t]
+                                : form.policy.accountTypes.filter((x) => x !== t),
+                            },
+                          })
+                        }
+                      />
+                      {ACCOUNT_TYPE_LABELS[t]}
+                    </label>
+                  ))}
+                </div>
+                <Field label="Restrict to departments">
+                  <select
+                    multiple
+                    size={Math.min(6, Math.max(3, departments.length))}
+                    value={form.policy.departmentIds}
                     onChange={(e) =>
                       setForm({
                         ...form,
                         policy: {
                           ...form.policy,
-                          accountTypes: e.target.checked
-                            ? [...form.policy.accountTypes, t]
-                            : form.policy.accountTypes.filter((x) => x !== t),
+                          departmentIds: Array.from(e.target.selectedOptions).map((o) => o.value),
+                        },
+                      })
+                    }
+                  >
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.code} — {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Graduation years" hint="Comma separated, e.g. 2026, 2027.">
+                  <input
+                    value={form.policy.graduationYears.join(", ")}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        policy: {
+                          ...form.policy,
+                          graduationYears: e.target.value
+                            .split(/[,\s]+/)
+                            .map((v) => Number(v))
+                            .filter((v) => Number.isInteger(v) && v >= 2000 && v <= 2100),
                         },
                       })
                     }
                   />
-                  {ACCOUNT_TYPE_LABELS[t]}
+                </Field>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.policy.requireInvitation}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        policy: { ...form.policy, requireInvitation: e.target.checked },
+                      })
+                    }
+                  />
+                  Require an invitation to register
                 </label>
-              ))}
-            </div>
-            <Field label="Restrict to departments">
-              <select
-                multiple
-                size={Math.min(6, Math.max(3, departments.length))}
-                value={form.policy.departmentIds}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    policy: {
-                      ...form.policy,
-                      departmentIds: Array.from(e.target.selectedOptions).map((o) => o.value),
-                    },
-                  })
-                }
-              >
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.code} — {d.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Graduation years" hint="Comma separated, e.g. 2026, 2027.">
-              <input
-                value={form.policy.graduationYears.join(", ")}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    policy: {
-                      ...form.policy,
-                      graduationYears: e.target.value
-                        .split(/[,\s]+/)
-                        .map((v) => Number(v))
-                        .filter((v) => Number.isInteger(v) && v >= 2000 && v <= 2100),
-                    },
-                  })
-                }
-              />
-            </Field>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={form.policy.requireInvitation}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    policy: { ...form.policy, requireInvitation: e.target.checked },
-                  })
-                }
-              />
-              Require an invitation to register
-            </label>
-          </fieldset>
+              </fieldset>
 
-          <div className="row">
-            <button type="submit" disabled={action.busy}>
-              {action.busy ? "Saving…" : "Save draft"}
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => detail && setForm(toForm(detail))}
-            >
-              Reset
-            </button>
-          </div>
-        </form>
-      )}
-
-      {tab === "invitations" && (
-        <>
-          {event.audience === "COLLEGE_ONLY" && (
-            <p className="warn-note">
-              This event is college-only. Invitations matter for events open to outsiders or marked
-              invited-only.
-            </p>
-          )}
-          <form className="form" onSubmit={sendInvites}>
-            <Field label="Email addresses" hint="Separate with commas, spaces or new lines.">
-              <textarea
-                rows={3}
-                value={inviteText}
-                placeholder="student@othercollege.edu"
-                onChange={(e) => setInviteText(e.target.value)}
-              />
-            </Field>
-            <Field label="Expires (optional)">
-              <input
-                type="datetime-local"
-                value={inviteExpiry}
-                onChange={(e) => setInviteExpiry(e.target.value)}
-              />
-            </Field>
-            {inviteError && <ErrorNote message={inviteError} />}
-            <button type="submit" disabled={action.busy}>
-              Invite
-            </button>
-          </form>
-
-          {invites.length === 0 ? (
-            <Empty>No invitations recorded for this event.</Empty>
-          ) : (
-            <div className="scroll-x">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>Linked account</th>
-                    <th>Accepted</th>
-                    <th>Expires</th>
-                    <th>State</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {invites.map((inv) => (
-                    <tr key={inv.id}>
-                      <td>{inv.email}</td>
-                      <td>{inv.userId ? "Yes" : "Not registered yet"}</td>
-                      <td>{inv.acceptedAt ? formatWhen(inv.acceptedAt) : "—"}</td>
-                      <td>{inv.expiresAt ? formatWhen(inv.expiresAt) : "No expiry"}</td>
-                      <td>{inv.revokedAt ? "Revoked" : "Active"}</td>
-                      <td>
-                        {!inv.revokedAt && (
-                          <button
-                            type="button"
-                            className="danger tiny"
-                            disabled={action.busy}
-                            onClick={() => setRevoke(inv)}
-                          >
-                            Revoke
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
-      {tab === "history" && (
-        <>
-          {historyError && <ErrorNote message={historyError} />}
-          <h3>Revisions</h3>
-          {revisions.length === 0 ? (
-            <Empty>No revisions recorded.</Empty>
-          ) : (
-            <div className="scroll-x">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Revision</th>
-                    <th>Note</th>
-                    <th>By</th>
-                    <th>When</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {revisions.map((r) => (
-                    <tr key={r.revision.id}>
-                      <td>{r.revision.revision}</td>
-                      <td>{r.revision.note ?? "—"}</td>
-                      <td>{r.createdBy?.fullName ?? "System"}</td>
-                      <td>{formatWhen(r.revision.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <h3>Audit trail</h3>
-          {audit.length === 0 ? (
-            <Empty>No audit entries visible to you for this event.</Empty>
-          ) : (
-            <>
-              <div className="scroll-x">
-                <table className="grid">
-                  <thead>
-                    <tr>
-                      <th>Action</th>
-                      <th>Entity</th>
-                      <th>Actor</th>
-                      <th>When</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {audit.map((a) => (
-                      <tr key={a.id}>
-                        <td>{a.action.replace(/_/g, " ").toLowerCase()}</td>
-                        <td>{a.entityType.replace(/_/g, " ")}</td>
-                        <td>{a.actor?.fullName ?? "System"}</td>
-                        <td>{formatWhen(a.createdAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="row">
+                <button type="submit" disabled={action.busy}>
+                  {action.busy ? "Saving…" : "Save draft"}
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => detail && setForm(toForm(detail))}
+                >
+                  Reset
+                </button>
               </div>
-              <Pager
-                offset={auditOffset}
-                limit={PAGE_SIZE}
-                hasMore={auditMore}
-                count={audit.length}
-                onChange={(o) => void loadHistory(o)}
-              />
+            </form>
+          )}
+
+          {tab === "invitations" && (
+            <>
+              {event.audience === "COLLEGE_ONLY" && (
+                <p className="warn-note">
+                  This event is college-only. Invitations matter for events open to outsiders or
+                  marked invited-only.
+                </p>
+              )}
+              <form className="form" onSubmit={sendInvites}>
+                <Field label="Email addresses" hint="Separate with commas, spaces or new lines.">
+                  <textarea
+                    rows={3}
+                    value={inviteText}
+                    placeholder="student@othercollege.edu"
+                    onChange={(e) => setInviteText(e.target.value)}
+                  />
+                </Field>
+                <Field label="Expires (optional)">
+                  <input
+                    type="datetime-local"
+                    value={inviteExpiry}
+                    onChange={(e) => setInviteExpiry(e.target.value)}
+                  />
+                </Field>
+                {inviteError && <ErrorNote message={inviteError} />}
+                <button type="submit" disabled={action.busy}>
+                  Invite
+                </button>
+              </form>
+
+              {invites.length === 0 ? (
+                <Empty>No invitations recorded for this event.</Empty>
+              ) : (
+                <div className="scroll-x">
+                  <table className="grid">
+                    <thead>
+                      <tr>
+                        <th>Email</th>
+                        <th>Linked account</th>
+                        <th>Accepted</th>
+                        <th>Expires</th>
+                        <th>State</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invites.map((inv) => (
+                        <tr key={inv.id}>
+                          <td>{inv.email}</td>
+                          <td>{inv.userId ? "Yes" : "Not registered yet"}</td>
+                          <td>{inv.acceptedAt ? formatWhen(inv.acceptedAt) : "—"}</td>
+                          <td>{inv.expiresAt ? formatWhen(inv.expiresAt) : "No expiry"}</td>
+                          <td>{inv.revokedAt ? "Revoked" : "Active"}</td>
+                          <td>
+                            {!inv.revokedAt && (
+                              <button
+                                type="button"
+                                className="danger tiny"
+                                disabled={action.busy}
+                                onClick={() => setRevoke(inv)}
+                              >
+                                Revoke
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
-        </>
-      )}
 
-      <ConfirmDialog
-        open={revoke !== null}
-        title={`Revoke the invitation for ${revoke?.email ?? ""}?`}
-        description="They will no longer be able to register for this event through the invitation. You can invite the address again later."
-        confirmLabel="Revoke"
-        busy={action.busy}
-        onCancel={() => setRevoke(null)}
-        onConfirm={() => void doRevoke()}
-      />
+          {tab === "history" && (
+            <>
+              {historyError && <ErrorNote message={historyError} />}
+              <h3>Revisions</h3>
+              {revisions.length === 0 ? (
+                <Empty>No revisions recorded.</Empty>
+              ) : (
+                <div className="scroll-x">
+                  <table className="grid">
+                    <thead>
+                      <tr>
+                        <th>Revision</th>
+                        <th>Note</th>
+                        <th>By</th>
+                        <th>When</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {revisions.map((r) => (
+                        <tr key={r.revision.id}>
+                          <td>{r.revision.revision}</td>
+                          <td>{r.revision.note ?? "—"}</td>
+                          <td>{r.createdBy?.fullName ?? "System"}</td>
+                          <td>{formatWhen(r.revision.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-      <ConfirmDialog
-        open={confirm !== null}
-        title={confirm === "start" ? "Start this event?" : "Mark this event completed?"}
-        description={
-          confirm === "start"
-            ? "The event becomes LIVE and participants can check in."
-            : "The event is closed and its resource holds are released. This cannot be undone."
-        }
-        confirmLabel={confirm === "start" ? "Start event" : "Mark completed"}
-        danger={confirm === "complete"}
-        onCancel={() => setConfirm(null)}
-        onConfirm={() => {
-          if (confirm) void transition(confirm);
-        }}
-      />
+              <h3>Audit trail</h3>
+              {audit.length === 0 ? (
+                <Empty>No audit entries visible to you for this event.</Empty>
+              ) : (
+                <>
+                  <div className="scroll-x">
+                    <table className="grid">
+                      <thead>
+                        <tr>
+                          <th>Action</th>
+                          <th>Entity</th>
+                          <th>Actor</th>
+                          <th>When</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {audit.map((a) => (
+                          <tr key={a.id}>
+                            <td>{a.action.replace(/_/g, " ").toLowerCase()}</td>
+                            <td>{a.entityType.replace(/_/g, " ")}</td>
+                            <td>{a.actor?.fullName ?? "System"}</td>
+                            <td>{formatWhen(a.createdAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Pager
+                    offset={auditOffset}
+                    limit={PAGE_SIZE}
+                    hasMore={auditMore}
+                    count={audit.length}
+                    onChange={(o) => void loadHistory(o)}
+                  />
+                </>
+              )}
+            </>
+          )}
+
+          <ConfirmDialog
+            open={revoke !== null}
+            title={`Revoke the invitation for ${revoke?.email ?? ""}?`}
+            description="They will no longer be able to register for this event through the invitation. You can invite the address again later."
+            confirmLabel="Revoke"
+            busy={action.busy}
+            onCancel={() => setRevoke(null)}
+            onConfirm={() => void doRevoke()}
+          />
+
+          <ConfirmDialog
+            open={confirm !== null}
+            title={confirm === "start" ? "Start this event?" : "Mark this event completed?"}
+            description={
+              confirm === "start"
+                ? "The event becomes LIVE and participants can check in."
+                : "The event is closed and its resource holds are released. This cannot be undone."
+            }
+            confirmLabel={confirm === "start" ? "Start event" : "Mark completed"}
+            danger={confirm === "complete"}
+            onCancel={() => setConfirm(null)}
+            onConfirm={() => {
+              if (confirm) void transition(confirm);
+            }}
+          />
+        </div>
+      </div>
     </Card>
   );
 }

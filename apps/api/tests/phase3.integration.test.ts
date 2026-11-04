@@ -706,6 +706,22 @@ describe("phase 3 revisions and cancellation", () => {
     expect(revise.json.data.status).toBe("DRAFT");
     expect(revise.json.data.currentRevision).toBe(2);
 
+    // The prior bundle is retired, so the new draft must collect fresh approvals.
+    const cleared = await req(
+      "GET",
+      `/api/v1/events/${ids.event}/approval-bundle`,
+      undefined,
+      tokens.lead,
+    );
+    expect(cleared.status).toBe(200);
+    expect(cleared.json.data.bundle).toBeNull();
+    const { db } = getDb();
+    const retired = await db
+      .select()
+      .from(approvalBundles)
+      .where(eq(approvalBundles.eventId, ids.event as string));
+    expect(retired.some((b) => b.supersededAt !== null)).toBe(true);
+
     const revisions = await req(
       "GET",
       `/api/v1/events/${ids.event}/revisions`,

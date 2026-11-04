@@ -10,7 +10,7 @@ import {
   summarizeBundle,
   validateBundleComposition,
 } from "@campusops/shared";
-import { type SQL, and, asc, count, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
+import { type SQL, and, asc, count, desc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import type { z } from "zod";
 import { env } from "../../config/env";
 import { type DbClient, getDb } from "../../db/client";
@@ -318,13 +318,20 @@ export async function inbox(auth: AuthContext, input: z.infer<typeof approvalInb
     tiers.length = 0;
     tiers.push(input.tier);
   }
-  if (tiers.length === 0)
-    return { items: [], total: 0, limit: input.limit, offset: input.offset, hasMore: false };
+  const empty = {
+    items: [],
+    total: 0,
+    limit: input.limit,
+    offset: input.offset,
+    hasMore: false,
+    counts: { assigned: 0, queue: 0, all: 0 },
+  };
+  if (tiers.length === 0) return empty;
 
   const senior = departmentScope(auth, "HOD_DEAN");
   const assignedClause = eq(approvalRequests.assignedApproverId, auth.user.id);
   const queueClauses: SQL[] = [];
-  if (tiers.includes("ADMIN") && input.scope !== "assigned") {
+  if (tiers.includes("ADMIN")) {
     queueClauses.push(
       and(
         eq(approvalRequests.currentTier, "ADMIN"),
@@ -332,7 +339,7 @@ export async function inbox(auth: AuthContext, input: z.infer<typeof approvalInb
       ) as SQL,
     );
   }
-  if (tiers.includes("SENIOR") && input.scope !== "assigned") {
+  if (tiers.includes("SENIOR")) {
     queueClauses.push(
       and(
         eq(approvalRequests.currentTier, "SENIOR"),
@@ -358,17 +365,32 @@ export async function inbox(auth: AuthContext, input: z.infer<typeof approvalInb
         : queueClauses.length
           ? or(assignedClause, ...queueClauses)
           : assignedClause;
-  if (!scopeClause)
-    return { items: [], total: 0, limit: input.limit, offset: input.offset, hasMore: false };
+  if (!scopeClause) return empty;
 
-  const where = and(
+  const baseClauses = [
     inArray(approvalRequests.currentTier, tiers),
-    scopeClause,
     input.status
       ? eq(approvalRequests.status, input.status)
       : eq(approvalRequests.status, "PENDING"),
     isNull(approvalBundles.supersededAt),
-  );
+  ];
+  const where = and(...baseClauses, scopeClause);
+  const queueScope = queueClauses.length ? or(...queueClauses) : undefined;
+  const countFor = async (clause: SQL | undefined) => {
+    if (!clause) return 0;
+    const [row] = await db
+      .select({ n: count() })
+      .from(approvalRequests)
+      .innerJoin(approvalBundles, eq(approvalBundles.id, approvalRequests.bundleId))
+      .innerJoin(events, eq(events.id, approvalBundles.eventId))
+      .innerJoin(clubs, eq(clubs.id, events.clubId))
+      .where(and(...baseClauses, clause));
+    return row?.n ?? 0;
+  };
+  const [assignedCount, queueCount] = await Promise.all([
+    countFor(assignedClause),
+    countFor(queueScope),
+  ]);
   const rows = await db
     .select({
       request: approvalRequests,
@@ -401,6 +423,7 @@ export async function inbox(auth: AuthContext, input: z.infer<typeof approvalInb
     limit: input.limit,
     offset: input.offset,
     hasMore: rows.length > input.limit,
+    counts: { assigned: assignedCount, queue: queueCount, all: assignedCount + queueCount },
   };
 }
 
@@ -464,6 +487,22 @@ export async function eventBundle(auth: AuthContext, eventId: string) {
     .leftJoin(users, eq(users.id, approvalRequests.assignedApproverId))
     .where(eq(approvalRequests.bundleId, bundle.id))
     .orderBy(approvalRequests.createdAt, approvalRequests.id);
+  const requestIds = requests.map((r) => r.request.id);
+  const actionRows = requestIds.length
+    ? await db
+        .select({
+          action: approvalActions,
+          actor: { id: users.id, fullName: users.fullName },
+        })
+        .from(approvalActions)
+        .innerJoin(users, eq(users.id, approvalActions.actorId))
+        .where(inArray(approvalActions.requestId, requestIds))
+        .orderBy(desc(approvalActions.createdAt), desc(approvalActions.id))
+    : [];
+  const lastActionByRequest = new Map<string, (typeof actionRows)[number]>();
+  for (const row of actionRows)
+    if (!lastActionByRequest.has(row.action.requestId))
+      lastActionByRequest.set(row.action.requestId, row);
   const withResources = await Promise.all(
     requests.map(async (r) => {
       const links = await db
@@ -474,7 +513,7 @@ export async function eventBundle(auth: AuthContext, eventId: string) {
         .from(approvalRequestResources)
         .innerJoin(resourceUnits, eq(resourceUnits.id, approvalRequestResources.resourceUnitId))
         .where(eq(approvalRequestResources.requestId, r.request.id));
-      return { ...r, resources: links };
+      return { ...r, resources: links, lastAction: lastActionByRequest.get(r.request.id) ?? null };
     }),
   );
   return {

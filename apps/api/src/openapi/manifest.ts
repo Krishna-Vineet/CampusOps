@@ -472,6 +472,15 @@ export const operations: Operation[] = [
     successStatus: 201,
   },
   {
+    method: "patch",
+    path: "/departments/programs/:id",
+    tag: "Departments",
+    summary: "Update a programme's department mapping",
+    auth: true,
+    roles: ["ADMIN"],
+    body: departmentSchemas.updateProgramSchema,
+  },
+  {
     method: "post",
     path: "/departments",
     tag: "Departments",

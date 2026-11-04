@@ -78,6 +78,17 @@ export type EventBundle = {
       link: { startsAt: string; endsAt: string };
       unit: { id: string; label: string };
     }>;
+    lastAction: {
+      action: {
+        id: string;
+        action: string;
+        comment: string | null;
+        createdAt: string;
+        fromStatus: ApprovalStatus;
+        toStatus: ApprovalStatus;
+      };
+      actor: { id: string; fullName: string } | null;
+    } | null;
   }>;
   summary: BundleSummary;
 };

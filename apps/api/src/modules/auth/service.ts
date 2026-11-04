@@ -7,6 +7,7 @@ import {
   clubMemberships,
   clubs,
   departments,
+  programs,
   roleAssignments,
   sessions,
   studentProfiles,
@@ -19,6 +20,7 @@ import { sendAuthEmail } from "../../utils/email";
 import { signAccessToken } from "../../utils/jwt";
 import { hashPassword, verifyPassword } from "../../utils/password";
 import { generateOpaqueToken, generateOtp, hashToken, safeEqual } from "../../utils/tokens";
+import { effectiveDepartmentId } from "../departments/service";
 import type {
   changePasswordSchema,
   forgotPasswordSchema,
@@ -234,10 +236,31 @@ export async function createStaffSetupChallenge(userId: string, email: string) {
 
 export async function registerCollege(input: z.infer<typeof registerCollegeSchema>) {
   const { db } = getDb();
+  const program = input.programId
+    ? (await db.select().from(programs).where(eq(programs.id, input.programId)).limit(1))[0]
+    : undefined;
+  if (input.programId && !program) throw new ApiError("VALIDATION_ERROR", "Programme not found.");
+  if (program && !program.isActive)
+    throw new ApiError("VALIDATION_ERROR", "That programme is not accepting registrations.");
+  if (program && input.studyYear && input.studyYear > program.durationYears)
+    throw new ApiError("VALIDATION_ERROR", "Study year is beyond the programme duration.");
+  if (program && program.foundationYears > 0 && !input.studyYear)
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      "Select your year of study so your department membership is correct.",
+    );
+  const departmentId = program
+    ? effectiveDepartmentId(program, input.studyYear ?? null)
+    : input.departmentId;
+  if (!departmentId)
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      "This programme has no department yet. Contact your administrator.",
+    );
   const [dept] = await db
     .select()
     .from(departments)
-    .where(eq(departments.id, input.departmentId))
+    .where(eq(departments.id, departmentId))
     .limit(1);
   if (!dept) throw new ApiError("VALIDATION_ERROR", "Department not found.");
   const passwordHash = await hashPassword(input.password);
@@ -262,8 +285,10 @@ export async function registerCollege(input: z.infer<typeof registerCollegeSchem
         studentKind: "COLLEGE_STUDENT",
         institutionName: input.institutionName,
         rollNumber: input.rollNumber,
-        departmentId: input.departmentId,
-        program: input.program ?? null,
+        departmentId,
+        programId: program?.id ?? null,
+        program: input.program ?? program?.name ?? null,
+        studyYear: input.studyYear ?? null,
         graduationYear: input.graduationYear ?? null,
         collegeIdNumber: input.collegeIdNumber ?? null,
       });

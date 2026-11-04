@@ -33,6 +33,39 @@ async function main() {
         .values([
           { id: U(1), code: "CSE", name: "Computer Science & Engineering" },
           { id: U(2), code: "ECE", name: "Electronics & Communication" },
+          { id: U(3), code: "SCI", name: "Applied Science" },
+          { id: U(4), code: "MGT", name: "Management Studies" },
+        ])
+        .onConflictDoNothing();
+
+      // Programmes carry their department mapping and, where configured, the
+      // foundation years spent in Applied Science. This is demo data, not a
+      // code rule: administrators can change or remove it.
+      await tx
+        .insert(s.programs)
+        .values([
+          {
+            id: U(40),
+            name: "B.Tech Computer Science",
+            departmentId: U(1),
+            foundationDepartmentId: U(3),
+            foundationYears: 1,
+            durationYears: 4,
+          },
+          {
+            id: U(41),
+            name: "B.Tech Electronics",
+            departmentId: U(2),
+            foundationDepartmentId: U(3),
+            foundationYears: 1,
+            durationYears: 4,
+          },
+          {
+            id: U(42),
+            name: "BBA",
+            departmentId: U(4),
+            durationYears: 3,
+          },
         ])
         .onConflictDoNothing();
 

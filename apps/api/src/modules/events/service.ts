@@ -566,6 +566,41 @@ export async function createRevision(
     if (event.currentRevision !== input.expectedRevision)
       throw new ApiError("CONFLICT", "The event changed since you opened it. Reload and retry.");
 
+    // A revision starts a fresh approval cycle. Retire the open bundle and
+    // release anything it was holding so the new submission is not blocked by
+    // stale reservations from the previous attempt.
+    const priorBundles = await tx
+      .select()
+      .from(approvalBundles)
+      .where(and(eq(approvalBundles.eventId, eventId), isNull(approvalBundles.supersededAt)));
+    for (const prior of priorBundles) {
+      const priorRequests = await tx
+        .select()
+        .from(approvalRequests)
+        .where(eq(approvalRequests.bundleId, prior.id));
+      if (priorRequests.length)
+        await tx
+          .update(resourceReservations)
+          .set({
+            status: "RELEASED",
+            releasedAt: new Date(),
+            releaseReason: "Superseded by a new event revision.",
+          })
+          .where(
+            and(
+              inArray(
+                resourceReservations.requestId,
+                priorRequests.map((r) => r.id),
+              ),
+              inArray(resourceReservations.status, [...ACTIVE_RESERVATION_STATUSES]),
+            ),
+          );
+      await tx
+        .update(approvalBundles)
+        .set({ supersededAt: new Date() })
+        .where(eq(approvalBundles.id, prior.id));
+    }
+
     const nextRevision = event.currentRevision + 1;
     const [updated] = await tx
       .update(events)

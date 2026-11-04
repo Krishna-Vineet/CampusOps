@@ -1,21 +1,19 @@
 import {
-  APPROVAL_TIER_LABELS,
-  APPROVAL_TYPE_LABELS,
+  EVENT_AUDIENCE_LABELS,
   EVENT_STATUSES,
   EVENT_TEMPLATES,
   EVENT_TEMPLATE_LABELS,
+  type EventAudience,
 } from "@campusops/shared/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FormDialog, Pager, useToast } from "../components/feedback";
 import { Icon } from "../components/icons";
 import {
-  ApprovalBadge,
   Card,
   Empty,
   ErrorNote,
   EventBadge,
   Field,
-  ReservationBadge,
   SkeletonRows,
   SuccessNote,
   formatWhen,
@@ -25,15 +23,9 @@ import {
 import { type Page, api, downloadBlob, errorMessage, query } from "../lib/api";
 import { PAGE_SIZE } from "../lib/constants";
 import { useSession } from "../lib/session";
-import type {
-  ApprovalRequestRow,
-  Approver,
-  AvailabilityItem,
-  ClubRow,
-  EventBundle,
-  EventRow,
-} from "../lib/types";
-import { EventWorkspace } from "./EventWorkspace";
+import type { Approver, AvailabilityItem, ClubRow, EventBundle, EventRow } from "../lib/types";
+import { EventApprovals } from "./EventApprovals";
+import { EventWorkspace, type EventWorkspaceTab } from "./EventWorkspace";
 
 type DraftForm = {
   clubId: string;
@@ -48,15 +40,6 @@ type DraftForm = {
   registrationOpensAt: string;
   registrationClosesAt: string;
   venueSummary: string;
-};
-
-type RequestDraft = {
-  key: string;
-  type: "ORGANIZE" | "INVITE_OUTSIDERS" | "RESOURCE_USE" | "CUSTOM";
-  title: string;
-  isRequired: boolean;
-  assignedApproverId: string;
-  resourceUnitId: string;
 };
 
 function defaultForm(clubId: string): DraftForm {
@@ -83,6 +66,19 @@ function defaultForm(clubId: string): DraftForm {
   };
 }
 
+function eventDay(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+}
+
+function statusLabel(status: string) {
+  return status.replace(/_/g, " ").toLowerCase();
+}
+
+/**
+ * The events home. A searchable rail of events on the left, one event cockpit on
+ * the right: the next action, the approval story, and every operational tool,
+ * grouped so nothing important is buried in a wall of tabs.
+ */
 export function CoordinatorPanel({
   focusEventId,
   onFocusConsumed,
@@ -90,6 +86,7 @@ export function CoordinatorPanel({
 }: { focusEventId?: string | null; onFocusConsumed?: () => void; newDraftSignal?: number } = {}) {
   const { isCoordinator, isAdmin, isSenior } = useSession();
   const oversight = isAdmin || isSenior;
+  const canCreate = isCoordinator || isAdmin;
   const toast = useToast();
   const draftSignal = newDraftSignal ?? 0;
   const [clubs, setClubs] = useState<ClubRow[]>([]);
@@ -98,7 +95,6 @@ export function CoordinatorPanel({
   const [approvers, setApprovers] = useState<Approver[]>([]);
   const [units, setUnits] = useState<AvailabilityItem[]>([]);
   const [form, setForm] = useState<DraftForm | null>(null);
-  const [requests, setRequests] = useState<RequestDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -108,58 +104,77 @@ export function CoordinatorPanel({
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const selectedId = useRef<string | null>(null);
 
   const loadEvents = useCallback(
     async (offset = 0) => {
-      const page = await api<Page<EventRow>>(
-        `/me/events${query({ limit: PAGE_SIZE, offset, status: statusFilter, q: search })}`,
-      );
-      setEvents(page.items);
-      setEventOffset(offset);
-      setEventsMore(page.hasMore ?? false);
-      setEventsTotal(page.total ?? page.items.length);
-      setLoading(false);
+      try {
+        const page = await api<Page<EventRow>>(
+          `/me/events${query({ limit: PAGE_SIZE, offset, status: statusFilter, q: search })}`,
+        );
+        setEvents(page.items);
+        setEventOffset(offset);
+        setEventsMore(page.hasMore ?? false);
+        setEventsTotal(page.total ?? page.items.length);
+        setError(null);
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setLoading(false);
+      }
     },
     [statusFilter, search],
   );
 
+  const openEvent = useCallback(async (id: string) => {
+    setError(null);
+    try {
+      const bundle = await api<EventBundle>(`/events/${id}/approval-bundle`);
+      setSelected(bundle);
+      selectedId.current = id;
+      if (!["COMPLETED", "CANCELLED"].includes(bundle.event.status)) {
+        const availability = await api<{ items: AvailabilityItem[] }>(
+          `/resources/availability${query({
+            startsAt: bundle.event.startsAt,
+            endsAt: bundle.event.endsAt,
+            limit: 100,
+          })}`,
+        );
+        setUnits(availability.items);
+      } else {
+        setUnits([]);
+      }
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }, []);
+
+  const refreshSelected = useCallback(async () => {
+    if (selectedId.current) await openEvent(selectedId.current);
+    await loadEvents(eventOffset);
+  }, [eventOffset, loadEvents, openEvent]);
+
   useEffect(() => {
     (async () => {
       try {
-        const mine = await api<{ items: Array<{ club: ClubRow }> }>("/me/clubs");
+        const [mine, faculty] = await Promise.all([
+          api<{ items: Array<{ club: ClubRow }> }>("/me/clubs"),
+          api<{ items: Approver[] }>("/approvals/approvers?tier=FACULTY"),
+        ]);
         setClubs(mine.items.map((m) => m.club));
-        await loadEvents(0);
-        const faculty = await api<{ items: Approver[] }>("/approvals/approvers?tier=FACULTY");
         setApprovers(faculty.items);
       } catch (err) {
         setError(errorMessage(err));
         setLoading(false);
       }
     })();
-  }, [loadEvents]);
-
-  const openEvent = useCallback(async (id: string) => {
-    setError(null);
-    setNotice(null);
-    try {
-      const bundle = await api<EventBundle>(`/events/${id}/approval-bundle`);
-      setSelected(bundle);
-      setRequests([]);
-      if (bundle.event.status === "DRAFT") {
-        const w = query({
-          startsAt: bundle.event.startsAt,
-          endsAt: bundle.event.endsAt,
-          limit: 100,
-        });
-        const availability = await api<{ items: AvailabilityItem[] }>(
-          `/resources/availability${w}`,
-        );
-        setUnits(availability.items);
-      }
-    } catch (err) {
-      setError(errorMessage(err));
-    }
   }, []);
+
+  // Search and status are part of the query, so reload on change (debounced).
+  useEffect(() => {
+    const timer = setTimeout(() => void loadEvents(0), 250);
+    return () => clearTimeout(timer);
+  }, [loadEvents]);
 
   // Deep links from the dashboard / global search open a specific event once.
   useEffect(() => {
@@ -168,9 +183,9 @@ export function CoordinatorPanel({
       onFocusConsumed?.();
     }
   }, [focusEventId, openEvent, onFocusConsumed]);
+
   const lastSignal = useRef(0);
   useEffect(() => {
-    // Wait until clubs are loaded before consuming the "new draft" signal.
     if (draftSignal !== lastSignal.current && clubs.length) {
       lastSignal.current = draftSignal;
       setForm(defaultForm(clubs[0]?.id ?? ""));
@@ -198,64 +213,9 @@ export function CoordinatorPanel({
         venueSummary: form.venueSummary || null,
       });
       setForm(null);
-      setNotice("Draft created. Add the individual approvals it needs, then submit.");
+      setNotice("Draft created. Add the permissions it needs, then submit.");
       await loadEvents(eventOffset);
       await openEvent(created.id);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function addRequestDraft(type: RequestDraft["type"]) {
-    setRequests((prev) => [
-      ...prev,
-      {
-        key: `${type}-${Date.now()}-${prev.length}`,
-        type,
-        title:
-          type === "ORGANIZE"
-            ? "Permission to organize"
-            : type === "INVITE_OUTSIDERS"
-              ? "Permission to invite outsiders"
-              : type === "RESOURCE_USE"
-                ? "Resource use"
-                : "Additional permission",
-        isRequired: type !== "CUSTOM",
-        assignedApproverId: approvers[0]?.id ?? "",
-        resourceUnitId: "",
-      },
-    ]);
-  }
-
-  async function submitForApproval() {
-    if (!selected) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api(`/events/${selected.event.id}/submit`, {
-        expectedRevision: selected.event.currentRevision,
-        requests: requests.map((r) => ({
-          type: r.type,
-          title: r.title,
-          isRequired: r.isRequired,
-          assignedApproverId: r.assignedApproverId || null,
-          resources:
-            r.type === "RESOURCE_USE" && r.resourceUnitId
-              ? [
-                  {
-                    resourceUnitId: r.resourceUnitId,
-                    startsAt: selected.event.startsAt,
-                    endsAt: selected.event.endsAt,
-                  },
-                ]
-              : [],
-        })),
-      });
-      setNotice("Submitted. Each permission is now decided separately.");
-      await loadEvents(eventOffset);
-      await openEvent(selected.event.id);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -270,8 +230,7 @@ export function CoordinatorPanel({
     try {
       await api(`/events/${selected.event.id}/${path}`, body);
       setNotice(message);
-      await loadEvents(eventOffset);
-      await openEvent(selected.event.id);
+      await refreshSelected();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -279,140 +238,412 @@ export function CoordinatorPanel({
     }
   }
 
-  async function cancelEvent() {
-    const reason = window.prompt("Why is this event being cancelled?");
-    if (!reason || reason.trim().length < 5) return;
-    await act("cancel", { reason }, "Event cancelled and resources released.");
-  }
+  const summary = selected?.summary;
+  const changes = summary?.changesRequested ?? 0;
+  const next =
+    selected === null
+      ? null
+      : selected.event.status === "DRAFT"
+        ? selected.bundle
+          ? {
+              tone: "info" as const,
+              title: "This draft still has an approval bundle",
+              body: "Review the requests below, or revise the event before submitting it again.",
+              action: "Open approvals",
+              tab: "approvals" as EventWorkspaceTab,
+            }
+          : {
+              tone: "warn" as const,
+              title: "Next: ask for the permissions this event needs",
+              body: "Add each permission separately, choose who reviews it, then submit the bundle.",
+              action: "Set up approvals",
+              tab: "approvals" as EventWorkspaceTab,
+            }
+        : selected.event.status === "PENDING_APPROVALS" && changes > 0
+          ? {
+              tone: "warn" as const,
+              title: `${changes} reviewer${changes === 1 ? "" : "s"} asked for changes`,
+              body: "You do not need to cancel. Read the note, fix the request, and resubmit it.",
+              action: "Review changes",
+              tab: "approvals" as EventWorkspaceTab,
+            }
+          : selected.event.status === "PENDING_APPROVALS"
+            ? {
+                tone: "info" as const,
+                title: `${summary?.pending ?? 0} approval${
+                  summary?.pending === 1 ? "" : "s"
+                } still pending`,
+                body: `${summary?.requiredApproved ?? 0} of ${
+                  summary?.required ?? 0
+                } required permissions approved. You can follow each reviewer here.`,
+                action: "Track approvals",
+                tab: "approvals" as EventWorkspaceTab,
+              }
+            : selected.event.status === "READY"
+              ? {
+                  tone: "ok" as const,
+                  title: "Every required approval is in — publish when ready",
+                  body: "Publishing opens registration and makes the event visible to its audience.",
+                  action: "Publish now",
+                  run: () =>
+                    act(
+                      "publish",
+                      { expectedRevision: selected.event.currentRevision },
+                      "Event published.",
+                    ),
+                }
+              : selected.event.status === "PUBLISHED"
+                ? {
+                    tone: "info" as const,
+                    title: "Published. Run the event when doors open",
+                    body: "Start the event to switch on check-in, then use the access QRs at the desk.",
+                    action: "Open day-of controls",
+                    tab: "run" as EventWorkspaceTab,
+                  }
+                : selected.event.status === "LIVE"
+                  ? {
+                      tone: "ok" as const,
+                      title: "The event is live",
+                      body: "Scan passes, post announcements, and mark the event complete when it ends.",
+                      action: "Open day-of controls",
+                      tab: "run" as EventWorkspaceTab,
+                    }
+                  : selected.event.status === "COMPLETED"
+                    ? {
+                        tone: "info" as const,
+                        title: "Event completed",
+                        body: "Reports, attendance and the full audit trail stay available here.",
+                        action: "Open history",
+                        tab: "history" as EventWorkspaceTab,
+                      }
+                    : {
+                        tone: "warn" as const,
+                        title: "Event cancelled",
+                        body:
+                          selected.event.cancellationReason ??
+                          "Resource holds were released when the event was cancelled.",
+                        action: "Open history",
+                        tab: "history" as EventWorkspaceTab,
+                      };
+
+  const overviewNode = (go: (tab: EventWorkspaceTab) => void) => {
+    if (!selected || !next) return null;
+    const ev = selected.event;
+    return (
+      <div className="overview">
+        <section className={`next-action ${next.tone}`}>
+          <div>
+            <span className="eyebrow">Next step</span>
+            <h3>{next.title}</h3>
+            <p>{next.body}</p>
+          </div>
+          <button
+            type="button"
+            className="next-action-button"
+            disabled={busy}
+            onClick={() => {
+              if ("run" in next) void next.run();
+              else go(next.tab);
+            }}
+          >
+            {next.action}
+          </button>
+        </section>
+
+        <div className="fact-grid">
+          <div className="fact">
+            <span>When</span>
+            <strong>{formatWhen(ev.startsAt)}</strong>
+            <small>to {formatWhen(ev.endsAt)}</small>
+          </div>
+          <div className="fact">
+            <span>Where</span>
+            <strong>{ev.venueSummary || "Not set yet"}</strong>
+            <small>
+              {ev.audience === "COLLEGE_ONLY" ? "College only" : EVENT_AUDIENCE_LABELS[ev.audience]}
+            </small>
+          </div>
+          <div className="fact">
+            <span>Audience</span>
+            <strong>{EVENT_AUDIENCE_LABELS[ev.audience]}</strong>
+            <small>{ev.capacity} seats</small>
+          </div>
+          <div className="fact">
+            <span>Approvals</span>
+            <strong>
+              {selected.bundle
+                ? `${summary?.requiredApproved ?? 0}/${summary?.required ?? 0} required`
+                : "Not submitted"}
+            </strong>
+            <small>
+              {changes > 0
+                ? `${changes} change request${changes === 1 ? "" : "s"}`
+                : `${summary?.pending ?? 0} pending`}
+            </small>
+          </div>
+          <div className="fact">
+            <span>Revision</span>
+            <strong>v{ev.currentRevision}</strong>
+            <small>{statusLabel(ev.status)}</small>
+          </div>
+          <div className="fact">
+            <span>Registration</span>
+            <strong>{formatWhen(ev.registrationOpensAt)}</strong>
+            <small>closes {formatWhen(ev.registrationClosesAt)}</small>
+          </div>
+        </div>
+
+        {changes > 0 && (
+          <section className="change-banner compact">
+            <div>
+              <strong>Reviewer feedback is waiting</strong>
+              <p>
+                Open approvals to read the note. For a resource request you can change the room or
+                time and send it straight back; for anything else, revise the event.
+              </p>
+            </div>
+            <button type="button" className="ghost" onClick={() => go("approvals")}>
+              Review
+            </button>
+          </section>
+        )}
+
+        <section className="quick-actions">
+          <h3>Jump to</h3>
+          <div className="quick-grid">
+            {(
+              [
+                ["approvals", "Approvals", "Bundle, decisions, publish"],
+                ["edit", "Edit details", "Time, venue, eligibility"],
+                ["roster", "Participants", "Registrations and check-in"],
+                ["run", "Day of event", "Start, complete, announcements"],
+                ["access", "Access QRs", "Gate and desk passes"],
+                ["history", "History & audit", "Revisions and record"],
+              ] as Array<[EventWorkspaceTab, string, string]>
+            ).map(([tab, label, hint]) => (
+              <button type="button" key={tab} className="quick" onClick={() => go(tab)}>
+                <strong>{label}</strong>
+                <small>{hint}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {selected.bundle && (
+          <section className="overview-requests">
+            <h3>Approval story</h3>
+            <ul className="plain">
+              {selected.requests.map(({ request, assignee }) => (
+                <li key={request.id}>
+                  <span className={`dot status-${request.status.toLowerCase()}`} />
+                  <strong>{request.title}</strong>
+                  <span className="hint">
+                    {request.status.replace(/_/g, " ").toLowerCase()} ·{" "}
+                    {assignee?.fullName ?? "role queue"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
       <ErrorNote message={error} />
       <SuccessNote message={notice} />
 
-      <Card
-        title={oversight ? "Events (oversight)" : isCoordinator ? "My club events" : "Club events"}
-        subtitle={
-          oversight
-            ? isAdmin
-              ? "Every club's drafts, submissions and published events across the institution."
-              : "Every club's events in the departments you head."
-            : isCoordinator
-              ? "Every draft, submission and published event across the clubs you lead."
-              : "Read-only view of the clubs you are faculty for."
-        }
-        actions={
+      <div className="events-shell">
+        <header className="events-head">
+          <div>
+            <span className="eyebrow">{oversight ? "Institution-wide" : "Your clubs"}</span>
+            <p className="meta">
+              {oversight
+                ? isAdmin
+                  ? "Every club's events across the institution."
+                  : "Every club's events in the departments you head."
+                : isCoordinator
+                  ? "Every draft, submission and published event across the clubs you lead."
+                  : "Read-only view of the clubs you are faculty for."}
+            </p>
+          </div>
+          <div className="events-head-actions">
+            <label className="search">
+              <Icon name="search" size={14} />
+              <input
+                type="search"
+                placeholder="Search events…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={clubs.length === 0 || !canCreate}
+              title={canCreate ? undefined : "Only club coordinators and admins can create events."}
+              onClick={() => setForm(defaultForm(clubs[0]?.id ?? ""))}
+            >
+              <Icon name="plus" size={14} /> New event
+            </button>
+          </div>
+        </header>
+
+        <div className="status-pills" role="tablist" aria-label="Filter by status">
           <button
             type="button"
-            disabled={clubs.length === 0 || !isCoordinator}
-            title={
-              isCoordinator
-                ? undefined
-                : "Club faculty have read-only access; coordinators create events"
-            }
-            onClick={() => setForm(defaultForm(clubs[0]?.id ?? ""))}
+            className={statusFilter === "" ? "pill active" : "pill"}
+            onClick={() => setStatusFilter("")}
           >
-            <Icon name="plus" size={14} /> New draft
+            All
           </button>
-        }
-      >
-        <div className="toolbar">
-          <Field label="Status">
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="">Any status</option>
-              {EVENT_STATUSES.map((st) => (
-                <option key={st} value={st}>
-                  {st.replace(/_/g, " ").toLowerCase()}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Search">
-            <input
-              type="search"
-              placeholder="Title contains…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </Field>
-          <span className="meta">
-            {eventsTotal} event{eventsTotal === 1 ? "" : "s"}
-          </span>
+          {EVENT_STATUSES.map((status) => (
+            <button
+              type="button"
+              key={status}
+              className={statusFilter === status ? "pill active" : "pill"}
+              onClick={() => setStatusFilter(status)}
+            >
+              {statusLabel(status)}
+            </button>
+          ))}
         </div>
-        {loading ? (
-          <SkeletonRows rows={4} />
-        ) : clubs.length === 0 && events.length === 0 ? (
-          <Empty title="No events yet" icon="calendar">
-            {oversight
-              ? "No club events are in scope yet."
-              : "You are not an active coordinator of any club. A club lead or administrator can add you."}
-          </Empty>
-        ) : events.length === 0 ? (
-          <Empty
-            title={search || statusFilter ? "Nothing matches that filter" : "The calendar is empty"}
-            icon="calendar"
-            action={
-              isCoordinator && !search && !statusFilter ? (
-                <button
-                  type="button"
-                  className="ghost tiny"
-                  onClick={() => setForm(defaultForm(clubs[0]?.id ?? ""))}
-                >
-                  Start a draft
-                </button>
-              ) : undefined
-            }
-          >
-            {search || statusFilter
-              ? "Try a shorter search or clear the status filter."
-              : "Create a draft, add its permissions, and the approval flow begins from here."}
-          </Empty>
-        ) : (
-          <div className="scroll-x">
-            <table className="grid">
-              <thead>
-                <tr>
-                  <th>Event</th>
-                  <th>When</th>
-                  <th>Status</th>
-                  <th>Rev</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((event) => (
-                  <tr key={event.id}>
-                    <td>{event.title}</td>
-                    <td>{formatWhen(event.startsAt)}</td>
-                    <td>
-                      <EventBadge status={event.status} />
-                    </td>
-                    <td>{event.currentRevision}</td>
-                    <td>
-                      <button type="button" onClick={() => openEvent(event.id)}>
-                        Open
-                      </button>
-                    </td>
-                  </tr>
+
+        <div className="events-layout">
+          <aside className="events-rail" aria-label="Event list">
+            <div className="rail-meta">
+              {eventsTotal} event{eventsTotal === 1 ? "" : "s"}
+              {statusFilter ? ` · ${statusLabel(statusFilter)}` : ""}
+            </div>
+            {loading ? (
+              <SkeletonRows rows={5} />
+            ) : events.length === 0 ? (
+              <Empty
+                title={search || statusFilter ? "Nothing matches" : "No events yet"}
+                icon="calendar"
+                action={
+                  canCreate && !search && !statusFilter ? (
+                    <button
+                      type="button"
+                      className="ghost tiny"
+                      onClick={() => setForm(defaultForm(clubs[0]?.id ?? ""))}
+                    >
+                      Start a draft
+                    </button>
+                  ) : undefined
+                }
+              >
+                {search || statusFilter
+                  ? "Try a shorter search or clear the status filter."
+                  : clubs.length === 0
+                    ? "You are not an active coordinator of any club yet."
+                    : "Create a draft, add its permissions, and the approval flow begins here."}
+              </Empty>
+            ) : (
+              <div className="event-cards">
+                {events.map((ev) => (
+                  <button
+                    type="button"
+                    key={ev.id}
+                    className={selected?.event.id === ev.id ? "event-card selected" : "event-card"}
+                    onClick={() => void openEvent(ev.id)}
+                  >
+                    <span className={`event-date status-${ev.status.toLowerCase()}`}>
+                      {eventDay(ev.startsAt)}
+                    </span>
+                    <span className="event-card-body">
+                      <strong>{ev.title}</strong>
+                      <small>{formatWhen(ev.startsAt)}</small>
+                      <span className="event-card-foot">
+                        <EventBadge status={ev.status} />
+                        <span className="hint">rev {ev.currentRevision}</span>
+                      </span>
+                    </span>
+                  </button>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <Pager
-          offset={eventOffset}
-          limit={PAGE_SIZE}
-          count={events.length}
-          total={eventsTotal}
-          hasMore={eventsMore}
-          onChange={(o) => void loadEvents(o)}
-        />
-      </Card>
+              </div>
+            )}
+            <Pager
+              offset={eventOffset}
+              limit={PAGE_SIZE}
+              count={events.length}
+              total={eventsTotal}
+              hasMore={eventsMore}
+              onChange={(offset) => void loadEvents(offset)}
+            />
+          </aside>
+
+          <section className="events-stage" aria-label="Selected event">
+            {selected && next ? (
+              <>
+                <header className="event-hero">
+                  <div className="event-hero-main">
+                    <div className="row wrap hero-badges">
+                      <EventBadge status={selected.event.status} />
+                      <span className="badge muted">rev {selected.event.currentRevision}</span>
+                      <span className="badge muted">{selected.event.capacity} seats</span>
+                    </div>
+                    <h2>{selected.event.title}</h2>
+                    <p className="meta">
+                      {selected.club.name} · {formatWhen(selected.event.startsAt)} –{" "}
+                      {formatWhen(selected.event.endsAt)}
+                      {selected.event.venueSummary ? ` · ${selected.event.venueSummary}` : ""}
+                    </p>
+                  </div>
+                  <div className="event-hero-actions">
+                    <button
+                      type="button"
+                      className="ghost tiny"
+                      onClick={() =>
+                        void downloadBlob(
+                          `/events/${selected.event.id}/calendar.ics`,
+                          `${selected.event.slug}.ics`,
+                        ).catch((err) => toast.err(errorMessage(err)))
+                      }
+                    >
+                      <Icon name="calendar" size={14} /> Calendar
+                    </button>
+                  </div>
+                </header>
+
+                <EventWorkspace
+                  key={selected.event.id}
+                  event={selected.event}
+                  onChanged={refreshSelected}
+                  initialTab={
+                    changes > 0 || selected.event.status === "DRAFT" ? "approvals" : "overview"
+                  }
+                  overview={overviewNode}
+                  approvals={(go) => (
+                    <EventApprovals
+                      bundle={selected}
+                      approvers={approvers}
+                      units={units}
+                      onRefresh={async () => {
+                        await refreshSelected();
+                        go("overview");
+                      }}
+                    />
+                  )}
+                />
+              </>
+            ) : (
+              <Card title="Pick an event">
+                <Empty title="Nothing selected yet" icon="calendar">
+                  Choose an event from the list to see its next step, approvals and day-of tools in
+                  one place.
+                </Empty>
+              </Card>
+            )}
+          </section>
+        </div>
+      </div>
 
       <FormDialog
         open={form !== null}
         title="New event draft"
-        description="Start with the shape of the event. Permissions and resources are requested after the draft exists."
+        description="Start with the shape of the event. Permissions and resources come next."
         submitLabel="Create draft"
         size="wide"
         busy={busy}
@@ -446,7 +677,7 @@ export function CoordinatorPanel({
           >
             {EVENT_TEMPLATES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {EVENT_TEMPLATE_LABELS[t]}
               </option>
             ))}
           </select>
@@ -454,7 +685,9 @@ export function CoordinatorPanel({
         <Field label="Audience">
           <select
             value={form?.audience ?? ""}
-            onChange={(e) => setForm((f) => (f ? { ...f, audience: e.target.value } : f))}
+            onChange={(e) =>
+              setForm((f) => (f ? { ...f, audience: e.target.value as EventAudience } : f))
+            }
           >
             <option value="COLLEGE_ONLY">College only</option>
             <option value="OUTSIDERS_ALLOWED">Outsiders allowed</option>
@@ -528,230 +761,6 @@ export function CoordinatorPanel({
           />
         </Field>
       </FormDialog>
-
-      {selected && (
-        <Card
-          title={selected.event.title}
-          subtitle={`${selected.club.name} · ${formatWhen(selected.event.startsAt)} – ${formatWhen(
-            selected.event.endsAt,
-          )}`}
-          actions={
-            <>
-              <span className="badge muted">rev {selected.event.currentRevision}</span>
-              <span className="badge muted">{selected.event.capacity} seats</span>
-              <EventBadge status={selected.event.status} />
-              <button
-                type="button"
-                className="ghost tiny"
-                onClick={() =>
-                  void downloadBlob(
-                    `/events/${selected.event.id}/calendar.ics`,
-                    `${selected.event.slug}.ics`,
-                  ).catch((err) => toast.err(errorMessage(err)))
-                }
-              >
-                Calendar
-              </button>
-            </>
-          }
-        >
-          {selected.bundle ? (
-            <>
-              <p className="meta">
-                Required approvals: {selected.summary.requiredApproved}/{selected.summary.required}{" "}
-                · pending {selected.summary.pending}
-                {selected.summary.readyToPublish ? " · ready to publish" : ""}
-              </p>
-              <div className="requests">
-                {selected.requests.map(({ request, assignee, resources }) => (
-                  <article key={request.id} className="request">
-                    <header>
-                      <strong>{request.title}</strong>
-                      <ApprovalBadge status={request.status} />
-                    </header>
-                    <p className="meta">
-                      {APPROVAL_TYPE_LABELS[request.type]} ·{" "}
-                      {request.isRequired ? "required" : "optional"} · awaiting{" "}
-                      {APPROVAL_TIER_LABELS[request.currentTier]} · approver{" "}
-                      {assignee?.fullName ?? "role queue"} · v{request.version}
-                    </p>
-                    {resources.length > 0 && (
-                      <ul className="plain">
-                        {resources.map((r) => (
-                          <li key={r.unit.id}>
-                            {r.unit.label}: {formatWhen(r.link.startsAt)} –{" "}
-                            {formatWhen(r.link.endsAt)}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </article>
-                ))}
-              </div>
-              <div className="row">
-                <button
-                  type="button"
-                  disabled={busy || !selected.summary.readyToPublish}
-                  onClick={() =>
-                    act(
-                      "publish",
-                      { expectedRevision: selected.event.currentRevision },
-                      "Event published.",
-                    )
-                  }
-                >
-                  Publish
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  disabled={busy}
-                  onClick={() =>
-                    act(
-                      "revisions",
-                      {
-                        expectedRevision: selected.event.currentRevision,
-                        note: "Coordinator requested changes.",
-                      },
-                      "New draft revision created. Re-approval is required.",
-                    )
-                  }
-                >
-                  New revision
-                </button>
-                <button type="button" className="danger" disabled={busy} onClick={cancelEvent}>
-                  Cancel event
-                </button>
-              </div>
-              {!selected.summary.readyToPublish && (
-                <p className="hint">
-                  Publishing unlocks only when every required permission is approved.
-                </p>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="meta">
-                This draft has not been submitted. Add each permission separately.
-              </p>
-              <div className="row">
-                <button type="button" onClick={() => addRequestDraft("ORGANIZE")}>
-                  + Organize
-                </button>
-                <button type="button" onClick={() => addRequestDraft("INVITE_OUTSIDERS")}>
-                  + Outsiders
-                </button>
-                <button type="button" onClick={() => addRequestDraft("RESOURCE_USE")}>
-                  + Resource
-                </button>
-                <button type="button" onClick={() => addRequestDraft("CUSTOM")}>
-                  + Custom
-                </button>
-              </div>
-              {requests.map((r, index) => (
-                <div key={r.key} className="request">
-                  <div className="form wide">
-                    <Field label="Permission">
-                      <input
-                        value={r.title}
-                        onChange={(e) =>
-                          setRequests(
-                            requests.map((x, i) =>
-                              i === index ? { ...x, title: e.target.value } : x,
-                            ),
-                          )
-                        }
-                      />
-                    </Field>
-                    <Field label="Ask faculty">
-                      <select
-                        value={r.assignedApproverId}
-                        onChange={(e) =>
-                          setRequests(
-                            requests.map((x, i) =>
-                              i === index ? { ...x, assignedApproverId: e.target.value } : x,
-                            ),
-                          )
-                        }
-                      >
-                        <option value="">Select faculty…</option>
-                        {approvers.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.fullName}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    {r.type === "RESOURCE_USE" && (
-                      <Field
-                        label="Resource unit"
-                        hint="Only units free for the whole event window are listed."
-                      >
-                        <select
-                          value={r.resourceUnitId}
-                          onChange={(e) =>
-                            setRequests(
-                              requests.map((x, i) =>
-                                i === index ? { ...x, resourceUnitId: e.target.value } : x,
-                              ),
-                            )
-                          }
-                        >
-                          <option value="">Select unit…</option>
-                          {units
-                            .filter((u) => u.available)
-                            .map((u) => (
-                              <option key={u.resourceUnitId} value={u.resourceUnitId}>
-                                {u.resourceName} — {u.unitLabel}
-                              </option>
-                            ))}
-                        </select>
-                      </Field>
-                    )}
-                    <Field label="Required">
-                      <input
-                        type="checkbox"
-                        checked={r.isRequired}
-                        onChange={(e) =>
-                          setRequests(
-                            requests.map((x, i) =>
-                              i === index ? { ...x, isRequired: e.target.checked } : x,
-                            ),
-                          )
-                        }
-                      />
-                    </Field>
-                  </div>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => setRequests(requests.filter((_, i) => i !== index))}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                disabled={busy || requests.length === 0}
-                onClick={submitForApproval}
-              >
-                Submit for approval
-              </button>
-            </>
-          )}
-        </Card>
-      )}
-
-      {selected && (
-        <EventWorkspace
-          key={selected.event.id}
-          event={selected.event}
-          onChanged={async () => {
-            await openEvent(selected.event.id);
-          }}
-        />
-      )}
     </>
   );
 }

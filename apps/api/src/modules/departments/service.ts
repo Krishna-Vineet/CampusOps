@@ -1,9 +1,12 @@
-import { asc, eq } from "drizzle-orm";
-import { getDb } from "../../db/client";
-import { departments, programs } from "../../db/schema";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import type { z } from "zod";
+import { type DbClient, getDb } from "../../db/client";
+import { departments, programs, studentProfiles } from "../../db/schema";
 import { ApiError } from "../../utils/api-error";
 import { type AuditContext, insertAudit } from "../audit/service";
-import type { CreateDepartmentInput } from "./schemas";
+import type { CreateDepartmentInput, createProgramSchema, updateProgramSchema } from "./schemas";
+
+type Tx = Parameters<Parameters<DbClient["db"]["transaction"]>[0]>[0];
 
 /**
  * Departments are reference data referenced by clubs, staff profiles, resources
@@ -68,28 +71,125 @@ export async function updateDepartment(
   });
 }
 
-export async function listPrograms() {
-  const { db } = getDb();
-  const items = await db
-    .select({ id: programs.id, name: programs.name })
-    .from(programs)
-    .where(eq(programs.isActive, true))
-    .orderBy(asc(programs.name));
-  return { items };
+/**
+ * Programmes carry their own department mapping and an optional foundation
+ * window (first N years spent in another department). Registration and staff
+ * edits both resolve the student's effective department through this rule, so
+ * no programme names or year bands are hardcoded anywhere.
+ */
+export function effectiveDepartmentId(
+  program: {
+    departmentId: string | null;
+    foundationDepartmentId: string | null;
+    foundationYears: number;
+  },
+  studyYear: number | null,
+) {
+  if (
+    program.foundationDepartmentId &&
+    program.foundationYears > 0 &&
+    studyYear !== null &&
+    studyYear <= program.foundationYears
+  )
+    return program.foundationDepartmentId;
+  return program.departmentId;
 }
 
-export async function createProgram(name: string, audit?: AuditContext) {
+/** Recompute stored department membership for everyone in a programme. */
+export async function recalcProgramPlacements(
+  tx: Tx,
+  program: {
+    id: string;
+    departmentId: string | null;
+    foundationDepartmentId: string | null;
+    foundationYears: number;
+  },
+) {
+  const rows = await tx
+    .select({
+      userId: studentProfiles.userId,
+      studyYear: studentProfiles.studyYear,
+      departmentId: studentProfiles.departmentId,
+    })
+    .from(studentProfiles)
+    .where(eq(studentProfiles.programId, program.id));
+  for (const row of rows) {
+    const next = effectiveDepartmentId(program, row.studyYear);
+    if (next && next !== row.departmentId)
+      await tx
+        .update(studentProfiles)
+        .set({ departmentId: next, updatedAt: new Date() })
+        .where(eq(studentProfiles.userId, row.userId));
+  }
+}
+
+export async function listPrograms(
+  filters: { departmentId?: string | undefined; includeInactive?: boolean | undefined } = {},
+) {
   const { db } = getDb();
+  const rows = await db
+    .select({
+      id: programs.id,
+      name: programs.name,
+      departmentId: programs.departmentId,
+      departmentName: departments.name,
+      departmentCode: departments.code,
+      foundationDepartmentId: programs.foundationDepartmentId,
+      foundationYears: programs.foundationYears,
+      durationYears: programs.durationYears,
+      isActive: programs.isActive,
+      students: sql<number>`(select count(*)::int from ${studentProfiles} sp where sp.program_id = ${programs.id})`,
+    })
+    .from(programs)
+    .leftJoin(departments, eq(departments.id, programs.departmentId))
+    .where(
+      and(
+        filters.includeInactive ? undefined : eq(programs.isActive, true),
+        filters.departmentId ? eq(programs.departmentId, filters.departmentId) : undefined,
+      ),
+    )
+    .orderBy(asc(programs.name));
+  return { items: rows };
+}
+
+export async function createProgram(
+  input: z.infer<typeof createProgramSchema>,
+  audit?: AuditContext,
+) {
+  const { db } = getDb();
+  if (input.foundationDepartmentId && input.foundationDepartmentId === input.departmentId)
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      "The foundation department must differ from the home department.",
+    );
   try {
     return await db.transaction(async (tx) => {
-      const [row] = await tx.insert(programs).values({ name }).returning();
+      const ids = [input.departmentId, input.foundationDepartmentId].filter(
+        (id): id is string => typeof id === "string",
+      );
+      const found = await tx
+        .select({ id: departments.id })
+        .from(departments)
+        .where(inArray(departments.id, ids));
+      if (found.length !== ids.length)
+        throw new ApiError("VALIDATION_ERROR", "Department not found.");
+      const [row] = await tx
+        .insert(programs)
+        .values({
+          name: input.name,
+          departmentId: input.departmentId,
+          foundationDepartmentId: input.foundationDepartmentId ?? null,
+          foundationYears: input.foundationDepartmentId ? input.foundationYears : 0,
+          durationYears: input.durationYears,
+        })
+        .returning();
       if (!row) throw new ApiError("INTERNAL_ERROR", "Programme creation failed.");
       if (audit)
         await insertAudit(tx, audit, {
           action: "PROGRAM_CREATED",
           entityType: "program",
           entityId: row.id,
-          after: { name: row.name },
+          after: row,
         });
       return row;
     });
@@ -98,4 +198,60 @@ export async function createProgram(name: string, audit?: AuditContext) {
       throw new ApiError("CONFLICT", "A programme with that name already exists.");
     throw error;
   }
+}
+
+export async function updateProgram(
+  id: string,
+  input: z.infer<typeof updateProgramSchema>,
+  audit?: AuditContext,
+) {
+  const { db } = getDb();
+  return db.transaction(async (tx) => {
+    const [before] = await tx.select().from(programs).where(eq(programs.id, id)).limit(1);
+    if (!before) throw new ApiError("NOT_FOUND", "Programme not found.");
+    const durationYears = input.durationYears ?? before.durationYears;
+    const foundationYears = input.foundationYears ?? before.foundationYears;
+    const homeDepartmentId = input.departmentId ?? before.departmentId;
+    if (
+      input.foundationDepartmentId &&
+      homeDepartmentId &&
+      input.foundationDepartmentId === homeDepartmentId
+    )
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        "The foundation department must differ from the home department.",
+      );
+    if (foundationYears > durationYears)
+      throw new ApiError("VALIDATION_ERROR", "Foundation years cannot exceed the duration.");
+    for (const departmentId of [input.departmentId, input.foundationDepartmentId]) {
+      if (!departmentId) continue;
+      const [found] = await tx
+        .select({ id: departments.id })
+        .from(departments)
+        .where(eq(departments.id, departmentId))
+        .limit(1);
+      if (!found) throw new ApiError("VALIDATION_ERROR", "Department not found.");
+    }
+    const [row] = await tx
+      .update(programs)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(programs.id, id))
+      .returning();
+    if (!row) throw new ApiError("INTERNAL_ERROR", "Programme update failed.");
+    if (
+      input.departmentId !== undefined ||
+      input.foundationDepartmentId !== undefined ||
+      input.foundationYears !== undefined
+    )
+      await recalcProgramPlacements(tx, row);
+    if (audit)
+      await insertAudit(tx, audit, {
+        action: "PROGRAM_UPDATED",
+        entityType: "program",
+        entityId: id,
+        before,
+        after: row,
+      });
+    return row;
+  });
 }

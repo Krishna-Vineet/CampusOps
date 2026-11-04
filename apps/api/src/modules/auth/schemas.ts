@@ -19,20 +19,28 @@ export const otpSchema = z
   .trim()
   .regex(/^\d{6}$/, "OTP must be 6 digits.");
 
-export const registerCollegeSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-  fullName: z.string().trim().min(2).max(120),
-  phone: phoneInputSchema.optional(),
-  consentAccepted: z.boolean().optional(),
-  institutionName: z.string().trim().min(2).max(160),
-  rollNumber: z.string().trim().min(1).max(40),
-  departmentId: z.string().uuid(),
-  program: z.string().trim().max(120).optional(),
-  graduationYear: z.number().int().min(2000).max(2100).optional(),
-  collegeIdNumber: z.string().trim().max(60).optional(),
-  client: clientSchema,
-});
+export const registerCollegeSchema = z
+  .object({
+    email: emailSchema,
+    password: passwordSchema,
+    fullName: z.string().trim().min(2).max(120),
+    phone: phoneInputSchema.optional(),
+    consentAccepted: z.boolean().optional(),
+    institutionName: z.string().trim().min(2).max(160),
+    rollNumber: z.string().trim().min(1).max(40),
+    // departmentId stays for older clients; programme-aware clients send programId.
+    departmentId: z.string().uuid().optional(),
+    programId: z.string().uuid().optional(),
+    studyYear: z.number().int().min(1).max(12).optional(),
+    program: z.string().trim().max(120).optional(),
+    graduationYear: z.number().int().min(2000).max(2100).optional(),
+    collegeIdNumber: z.string().trim().max(60).optional(),
+    client: clientSchema,
+  })
+  .refine((v) => Boolean(v.departmentId || v.programId), {
+    message: "Choose a department or programme.",
+    path: ["departmentId"],
+  });
 
 export const registerOutsiderSchema = z.object({
   email: emailSchema,

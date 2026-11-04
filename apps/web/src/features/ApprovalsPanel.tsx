@@ -23,10 +23,14 @@ export function ApprovalsPanel({ onChanged }: { onChanged?: () => void } = {}) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [scope, setScope] = useState<"all" | "assigned" | "queue">("all");
+  const [counts, setCounts] = useState({ assigned: 0, queue: 0, all: 0 });
 
   const load = useCallback(async () => {
-    const page = await api<Page<InboxItem>>(`/approvals/inbox${query({ scope, limit: 50 })}`);
+    const page = await api<Page<InboxItem> & { counts: typeof counts }>(
+      `/approvals/inbox${query({ scope, limit: 50 })}`,
+    );
     setInbox(page.items);
+    if (page.counts) setCounts(page.counts);
   }, [scope]);
 
   useEffect(() => {
@@ -108,27 +112,57 @@ export function ApprovalsPanel({ onChanged }: { onChanged?: () => void } = {}) {
       <Card
         title="Approval inbox"
         actions={
-          <div className="row">
-            <select
-              value={scope}
-              onChange={(e) => setScope(e.target.value as "all" | "assigned" | "queue")}
-            >
-              <option value="all">Assigned to me + my queues</option>
-              <option value="assigned">Assigned to me only</option>
-              <option value="queue">My tier queue only</option>
-            </select>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => load().catch((e) => setError(errorMessage(e)))}
-            >
-              Refresh
-            </button>
-          </div>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => load().catch((e) => setError(errorMessage(e)))}
+          >
+            Refresh
+          </button>
         }
       >
+        <div className="scope-switch" role="tablist" aria-label="Approval scope">
+          {(
+            [
+              ["assigned", "Assigned to me", "Named asks"],
+              ["queue", "My tier queue", "Unclaimed"],
+              ["all", "Everything", "Both"],
+            ] as const
+          ).map(([value, label, hint]) => (
+            <button
+              type="button"
+              key={value}
+              role="tab"
+              aria-selected={scope === value}
+              className={scope === value ? "scope-option active" : "scope-option"}
+              onClick={() => setScope(value)}
+            >
+              <span>{label}</span>
+              <strong>{counts[value]}</strong>
+              <small>{hint}</small>
+            </button>
+          ))}
+        </div>
+        <p className="scope-help">
+          {scope === "assigned"
+            ? "Requests a coordinator (or another approver) sent to you by name. Only you decide these."
+            : scope === "queue"
+              ? "Unclaimed requests waiting at a tier you hold. Anyone with that role and department scope can pick one up; it stays shared until decided."
+              : "Your named asks plus the shared queue for your tier. Queue items are not reserved by opening them."}{" "}
+          Faculty requests are always addressed to a named reviewer, so a faculty-only reviewer
+          usually sees an empty queue. HOD/Dean and Admin have shared queues.
+        </p>
         {inbox.length === 0 ? (
-          <Empty>Nothing waiting for you here.</Empty>
+          <Empty
+            title={scope === "queue" ? "Your tier queue is clear" : "No approvals waiting"}
+            icon="check"
+          >
+            {scope === "queue"
+              ? "Unclaimed requests for your role will appear here. Named requests stay under Assigned to me."
+              : scope === "assigned"
+                ? "Nobody has sent you a request by name right now."
+                : "There is nothing to decide in either your named asks or your tier queue."}
+          </Empty>
         ) : (
           <div className="scroll-x">
             <table className="grid">

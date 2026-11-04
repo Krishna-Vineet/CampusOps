@@ -166,10 +166,22 @@ export const programs = pgTable(
   {
     id: id(),
     name: text("name").notNull(),
+    departmentId: uuid("department_id").references(() => departments.id),
+    foundationDepartmentId: uuid("foundation_department_id").references(() => departments.id),
+    foundationYears: integer("foundation_years").notNull().default(0),
+    durationYears: integer("duration_years").notNull().default(4),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: createdAt(),
+    updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex("programs_name_unique").on(sql`lower(${t.name})`)],
+  (t) => [
+    uniqueIndex("programs_name_unique").on(sql`lower(${t.name})`),
+    check(
+      "programs_foundation_years_valid",
+      sql`${t.foundationYears} >= 0 AND ${t.foundationYears} <= ${t.durationYears}`,
+    ),
+    check("programs_duration_years_valid", sql`${t.durationYears} between 1 and 12`),
+  ],
 );
 
 export const users = pgTable(
@@ -231,7 +243,9 @@ export const studentProfiles = pgTable(
     institutionName: text("institution_name").notNull(),
     rollNumber: text("roll_number"),
     departmentId: uuid("department_id").references(() => departments.id),
+    programId: uuid("program_id").references(() => programs.id),
     program: text("program"),
+    studyYear: integer("study_year"),
     graduationYear: integer("graduation_year"),
     collegeIdNumber: text("college_id_number"),
     photoFileId: uuid("photo_file_id").references(() => files.id),
@@ -252,6 +266,10 @@ export const studentProfiles = pgTable(
     ),
     check("student_kind_valid", sql`${t.studentKind} in ('COLLEGE_STUDENT','OUTSIDER_STUDENT')`),
     check("graduation_year_range", sql`${t.graduationYear} between 2000 and 2100`),
+    check(
+      "student_study_year_valid",
+      sql`${t.studyYear} is null or ${t.studyYear} between 1 and 12`,
+    ),
     check("profile_version_positive", sql`${t.profileVersion} > 0`),
     check(
       "student_verification_pair",

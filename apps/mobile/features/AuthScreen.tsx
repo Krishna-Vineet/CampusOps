@@ -19,7 +19,15 @@ import type { Challenge } from "../lib/types";
 
 type Mode = "login" | "college" | "outsider" | "verify" | "forgot" | "reset";
 type Department = { id: string; name: string; code: string };
-type Program = { id: string; name: string };
+type Program = {
+  id: string;
+  name: string;
+  departmentId: string | null;
+  departmentName: string | null;
+  foundationDepartmentId: string | null;
+  foundationYears: number;
+  durationYears: number;
+};
 
 export function AuthScreen() {
   const { signIn, config } = useSession();
@@ -30,7 +38,8 @@ export function AuthScreen() {
   const [phone, setPhone] = useState("");
   const [institutionName, setInstitutionName] = useState("");
   const [rollNumber, setRollNumber] = useState("");
-  const [program, setProgram] = useState("");
+  const [programId, setProgramId] = useState("");
+  const [studyYear, setStudyYear] = useState("");
   const [graduationYear, setGraduationYear] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [departmentId, setDepartmentId] = useState("");
@@ -88,8 +97,25 @@ export function AuthScreen() {
         });
         await signIn(result);
       } else if (mode === "college" || mode === "outsider") {
-        if (!departmentId && mode === "college") throw new Error("Choose your department.");
-        if (!program && mode === "college") throw new Error("Choose your programme.");
+        const selectedProgram = programs.find((p) => p.id === programId);
+        if (!selectedProgram && mode === "college") throw new Error("Choose your programme.");
+        if (
+          selectedProgram &&
+          selectedProgram.foundationYears > 0 &&
+          !studyYear &&
+          mode === "college"
+        )
+          throw new Error("Choose your year of study.");
+        if (
+          selectedProgram &&
+          !selectedProgram.departmentId &&
+          !selectedProgram.foundationDepartmentId &&
+          !departmentId &&
+          mode === "college"
+        )
+          throw new Error(
+            "This programme has no department yet. Choose one or contact your administrator.",
+          );
         if (mode === "college" && graduationYear && !/^20\d{2}$/.test(graduationYear))
           throw new Error("Enter a valid four-digit graduation year.");
         const trimmedPhone = phone.trim();
@@ -106,9 +132,13 @@ export function AuthScreen() {
           ...(mode === "college"
             ? {
                 rollNumber: rollNumber.trim(),
-                program: program.trim() || undefined,
+                programId: selectedProgram?.id,
+                studyYear: studyYear ? Number(studyYear) : undefined,
                 graduationYear: graduationYear ? Number(graduationYear) : undefined,
-                departmentId,
+                departmentId:
+                  selectedProgram?.departmentId ??
+                  selectedProgram?.foundationDepartmentId ??
+                  departmentId,
               }
             : {}),
         };
@@ -151,6 +181,7 @@ export function AuthScreen() {
   }
 
   const registering = mode === "college" || mode === "outsider";
+  const selectedProgram = programs.find((item) => item.id === programId);
   const labels: Record<Mode, string> = {
     login: "Sign in",
     college: "Create student account",
@@ -271,14 +302,60 @@ export function AuthScreen() {
                   {programs.map((item) => (
                     <Chip
                       key={item.id}
-                      label={item.name}
-                      selected={program === item.name}
-                      onPress={() => setProgram(item.name)}
+                      label={
+                        item.departmentName ? `${item.name} · ${item.departmentName}` : item.name
+                      }
+                      selected={programId === item.id}
+                      onPress={() => {
+                        setProgramId(item.id);
+                        setStudyYear("");
+                      }}
                     />
                   ))}
                 </View>
               )}
             </View>
+            {selectedProgram && (
+              <>
+                <View style={{ gap: 8 }}>
+                  <Text style={{ fontWeight: "600" }}>Year of study</Text>
+                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                    {Array.from({ length: selectedProgram.durationYears }, (_, i) => i + 1).map(
+                      (year) => (
+                        <Chip
+                          key={year}
+                          label={`Year ${year}`}
+                          selected={studyYear === String(year)}
+                          onPress={() => setStudyYear(String(year))}
+                        />
+                      ),
+                    )}
+                  </View>
+                  {selectedProgram.foundationYears > 0 && studyYear && (
+                    <Text style={{ color: "#6b7085" }}>
+                      First {selectedProgram.foundationYears} year
+                      {selectedProgram.foundationYears === 1 ? "" : "s"} are shared across
+                      programmes; your department membership updates automatically after that.
+                    </Text>
+                  )}
+                </View>
+                {!selectedProgram.departmentId && !selectedProgram.foundationDepartmentId && (
+                  <>
+                    <Text style={{ fontWeight: "600" }}>Department</Text>
+                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                      {departments.map((d) => (
+                        <Chip
+                          key={d.id}
+                          label={d.name}
+                          selected={departmentId === d.id}
+                          onPress={() => setDepartmentId(d.id)}
+                        />
+                      ))}
+                    </View>
+                  </>
+                )}
+              </>
+            )}
             <Field
               label="Graduation year"
               value={graduationYear}
@@ -287,18 +364,6 @@ export function AuthScreen() {
               maxLength={4}
               placeholder={String(new Date().getFullYear() + 4)}
             />
-
-            <Text style={{ fontWeight: "600" }}>Department</Text>
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              {departments.map((d) => (
-                <Chip
-                  key={d.id}
-                  label={d.name}
-                  selected={departmentId === d.id}
-                  onPress={() => setDepartmentId(d.id)}
-                />
-              ))}
-            </View>
           </>
         )}
         {(mode === "verify" || mode === "reset") && (

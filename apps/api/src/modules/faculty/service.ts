@@ -1,7 +1,7 @@
 import { type SQL, and, count, eq, ilike, inArray, or } from "drizzle-orm";
 import type { z } from "zod";
 import { getDb } from "../../db/client";
-import { departments, studentProfiles, users } from "../../db/schema";
+import { departments, programs, studentProfiles, users } from "../../db/schema";
 import {
   type AuthContext,
   canAccessDepartment,
@@ -12,6 +12,7 @@ import { ApiError } from "../../utils/api-error";
 import { isUniqueViolation } from "../../utils/db-error";
 import { type AuditContext, insertAudit } from "../audit/service";
 import { publicUser } from "../auth/service";
+import { effectiveDepartmentId } from "../departments/service";
 import type { listStudentsSchema, profilePatchSchema, rejectSchema } from "./schemas";
 
 /**
@@ -50,10 +51,12 @@ export async function listStudents(auth: AuthContext, input: z.infer<typeof list
       user: users,
       profile: studentProfiles,
       departmentName: departments.name,
+      programName: programs.name,
     })
     .from(users)
     .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
     .leftJoin(departments, eq(departments.id, studentProfiles.departmentId))
+    .leftJoin(programs, eq(programs.id, studentProfiles.programId))
     .where(where)
     .orderBy(users.fullName, users.id)
     .limit(input.limit + 1)
@@ -75,6 +78,7 @@ export async function listStudents(auth: AuthContext, input: z.infer<typeof list
       createdAt: r.user.createdAt,
       profile: r.profile,
       departmentName: r.departmentName,
+      programName: r.programName,
     })),
     total: totalRow?.n ?? 0,
     limit: input.limit,
@@ -138,7 +142,8 @@ async function getCollegeStudentInScope(auth: AuthContext, id: string) {
     .limit(1);
   if (!row) throw new ApiError("NOT_FOUND", "Student not found.");
   const canFaculty =
-    hasRole(auth, "FACULTY") && canAccessDepartment(auth, "FACULTY", row.profile.departmentId);
+    hasRole(auth, "ADMIN") ||
+    (hasRole(auth, "FACULTY") && canAccessDepartment(auth, "FACULTY", row.profile.departmentId));
   const canSeniorRead =
     hasRole(auth, "HOD_DEAN") && canAccessDepartment(auth, "HOD_DEAN", row.profile.departmentId);
   if (!canFaculty && !canSeniorRead)
@@ -244,16 +249,47 @@ export async function patchStudentProfile(
   input: z.infer<typeof profilePatchSchema>,
   audit?: AuditContext,
 ) {
-  if (!hasRole(auth, "FACULTY"))
-    throw new ApiError("FORBIDDEN", "Only faculty can correct student profiles.");
+  const admin = hasRole(auth, "ADMIN");
+  const faculty = hasRole(auth, "FACULTY");
+  const senior = hasRole(auth, "HOD_DEAN");
+  if (!admin && !faculty && !senior)
+    throw new ApiError(
+      "FORBIDDEN",
+      "Only faculty, an HOD/Dean or an administrator can correct student profiles.",
+    );
   const row = await getCollegeStudentInScope(auth, id);
-  if (!canAccessDepartment(auth, "FACULTY", row.profile.departmentId))
-    throw new ApiError("FORBIDDEN", "Student is outside your faculty scope.");
-  if (input.departmentId !== undefined) {
-    if (input.departmentId === null)
+  const inScope =
+    admin ||
+    (faculty && canAccessDepartment(auth, "FACULTY", row.profile.departmentId)) ||
+    (senior && canAccessDepartment(auth, "HOD_DEAN", row.profile.departmentId));
+  if (!inScope) throw new ApiError("FORBIDDEN", "Student is outside your scope.");
+  let resolvedDepartmentId = input.departmentId;
+  if (input.programId !== undefined || input.studyYear !== undefined) {
+    const programId = input.programId === undefined ? row.profile.programId : input.programId;
+    if (programId) {
+      const [program] = await getDb()
+        .db.select()
+        .from(programs)
+        .where(eq(programs.id, programId))
+        .limit(1);
+      if (!program) throw new ApiError("VALIDATION_ERROR", "Programme not found.");
+      const studyYear = input.studyYear === undefined ? row.profile.studyYear : input.studyYear;
+      resolvedDepartmentId = effectiveDepartmentId(program, studyYear);
+      if (!resolvedDepartmentId)
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          "This programme has no department yet. Set one in Administration → Departments.",
+        );
+    }
+  }
+  if (resolvedDepartmentId !== undefined) {
+    if (resolvedDepartmentId === null)
       throw new ApiError("VALIDATION_ERROR", "College students require a department.");
-    if (!canAccessDepartment(auth, "FACULTY", input.departmentId))
-      throw new ApiError("FORBIDDEN", "Target department is outside your faculty scope.");
+    const targetInScope =
+      admin ||
+      (faculty && canAccessDepartment(auth, "FACULTY", resolvedDepartmentId)) ||
+      (senior && canAccessDepartment(auth, "HOD_DEAN", resolvedDepartmentId));
+    if (!targetInScope) throw new ApiError("FORBIDDEN", "Target department is outside your scope.");
   }
   const { db } = getDb();
   const before = { user: publicUser(row.user), profile: row.profile };
@@ -287,7 +323,9 @@ export async function patchStudentProfile(
             ? { institutionName: input.institutionName }
             : {}),
           ...(input.rollNumber !== undefined ? { rollNumber: input.rollNumber } : {}),
-          ...(input.departmentId !== undefined ? { departmentId: input.departmentId } : {}),
+          ...(resolvedDepartmentId !== undefined ? { departmentId: resolvedDepartmentId } : {}),
+          ...(input.programId !== undefined ? { programId: input.programId } : {}),
+          ...(input.studyYear !== undefined ? { studyYear: input.studyYear } : {}),
           ...(input.program !== undefined ? { program: input.program } : {}),
           ...(input.graduationYear !== undefined ? { graduationYear: input.graduationYear } : {}),
           ...(input.collegeIdNumber !== undefined
